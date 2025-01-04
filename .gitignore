@@ -162,3 +162,5 @@ cython_debug/
 #.idea/
 
 *pybullet-object-models
+
+project_env
