@@ -9,6 +9,8 @@ from typing import Dict, Any
 from pybullet_object_models import ycb_objects  # type:ignore
 
 from src.simulation import Simulation
+from src.perception.pose_estimation import PoseEstimation
+from src.controllers.ik_controller import IKController
 
 
 import pybullet as p
@@ -23,7 +25,8 @@ def run_exp(config: Dict[str, Any]):
     files = glob.glob(os.path.join(object_root_path, "Ycb*"))
     obj_names = [file.split('/')[-1] for file in files]
     sim = Simulation(config)
-    for obj_name in obj_names:
+    # for obj_name in obj_names:
+    for obj_name in ["YcbPowerDrill", "YcbBanana", "YcbStrawberry"]:
         for tstep in range(10):
             sim.reset(obj_name)
             print((f"Object: {obj_name}, Timestep: {tstep},"
@@ -40,6 +43,25 @@ def run_exp(config: Dict[str, Any]):
             ee_pos, ee_ori = sim.robot.get_ee_pose()
             print(f"Robot End Effector Position: {ee_pos}")
             print(f"Robot End Effector Orientation: {ee_ori}")
+
+            robot = sim.get_robot()
+            ik_controller = IKController(
+                    robot_id=robot.id,
+                    joint_indices=robot.arm_idx,
+                    ee_index=robot.ee_idx
+                )
+
+            target_pos, _ = robot.get_ee_pose()
+            target_pos = target_pos + np.array([0.0, 0.0, 0.7])
+            print(f"the end effector position is {target_pos}")
+            joint_positions = ik_controller.solve_ik(
+                target_pos,
+                max_iters=10,     
+                tolerance=1e-2)
+            
+            # control robot
+            robot.position_control(joint_positions)
+ 
             for i in range(10000):
                 sim.step()
                 # for getting renders
@@ -50,25 +72,32 @@ def run_exp(config: Dict[str, Any]):
                        f"{sim.check_obstacle_position(obs_position_guess)}"))
                 goal_guess = np.zeros((7,))
 
-                stat_img = p.getCameraImage(sim.width, sim.height, sim.stat_viewMat, sim.projection_matrix)
+                (rgb, depth, seg) = sim.get_static_renders()
 
-                stat_img_rgb = stat_img[2]
-                stat_img_depth = stat_img[3]
-                stat_img_something = stat_img[4]
-
-                rgb = np.reshape(stat_img_rgb, (sim.height, sim.width, 4))
-                depth = np.reshape(stat_img_depth, (sim.height, sim.width, -1))
                 cv2.imwrite("rgb.jpg", rgb[:, :, 0:3])
-                # depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth, alpha=0.5), cv2.COLORMAP_HSV)
+                print(f"the seg list contains: {set(seg.ravel().tolist())}")
+                unique_ids = np.unique(seg)
+                id_to_label = {}
+                for obj_id in unique_ids:
+                    if obj_id >= 0:  # Ignore background (-1)
+                        body_info = p.getBodyInfo(obj_id)
+                        body_name = body_info[1].decode('utf-8')  # Decode name from bytes
+                        id_to_label[obj_id] = body_name
+                for obj_id, label in id_to_label.items():
+                    print(f"ID: {obj_id}, Label: {label}")
 
-                far = 5.0
-                near = 0.01
-
-                depth = far * near / (far - (far - near) * depth)
+                result = np.where(seg == 5, seg, 0)
+                cv2.imwrite("seg.jpg", result*25)
 
 
-                cv2.imwrite("depth.jpg", depth*100)
-                print(stat_img_depth.mean())
+                # far = 5.0
+                # near = 0.01
+
+                # depth = far * near / (far - (far - near) * depth)
+
+
+                # cv2.imwrite("depth.jpg", depth*100)
+                # print(stat_img_depth.mean())
 
                 print((f"[{i}] Goal Obj Pos-Diff: "
                        f"{sim.check_goal_obj_pos(goal_guess)}"))
