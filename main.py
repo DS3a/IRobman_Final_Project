@@ -10,8 +10,9 @@ from pybullet_object_models import ycb_objects  # type:ignore
 
 from src.simulation import Simulation
 from src.perception.pose_estimation import PoseEstimation
+from src.perception.position_estimation import PositionEstimation
+import src.perception.object_detection as object_detection
 from src.controllers.ik_controller import IKController
-
 
 import pybullet as p
 import cv2
@@ -53,7 +54,7 @@ def run_exp(config: Dict[str, Any]):
 
             target_pos, _ = robot.get_ee_pose()
             target_pos = target_pos + np.array([0.0, 0.0, 0.7])
-            print(f"the end effector position is {target_pos}")
+            # move the robot out of the way so that the camera can view the object properly
             joint_positions = ik_controller.solve_ik(
                 target_pos,
                 max_iters=10,     
@@ -74,8 +75,6 @@ def run_exp(config: Dict[str, Any]):
 
                 (rgb, depth, seg) = sim.get_static_renders()
 
-                cv2.imwrite("rgb.jpg", rgb[:, :, 0:3])
-                print(f"the seg list contains: {set(seg.ravel().tolist())}")
                 unique_ids = np.unique(seg)
                 id_to_label = {}
                 for obj_id in unique_ids:
@@ -86,18 +85,18 @@ def run_exp(config: Dict[str, Any]):
                 for obj_id, label in id_to_label.items():
                     print(f"ID: {obj_id}, Label: {label}")
 
-                result = np.where(seg == 5, seg, 0)
-                cv2.imwrite("seg.jpg", result*25)
+                segmented_depth = object_detection.segment_depth_image(
+                    depth, 
+                    object_detection.segmentation_mask(seg)
+                    )
 
+                far = 5.0
+                near = 0.01
 
-                # far = 5.0
-                # near = 0.01
+                segmented_depth = far * near / (far - (far - near) * segmented_depth)
 
-                # depth = far * near / (far - (far - near) * depth)
-
-
-                # cv2.imwrite("depth.jpg", depth*100)
-                # print(stat_img_depth.mean())
+                # cv2.imwrite("mask.jpg", segmentation_mask*100)
+                cv2.imwrite("depth.jpg", segmented_depth*10)
 
                 print((f"[{i}] Goal Obj Pos-Diff: "
                        f"{sim.check_goal_obj_pos(goal_guess)}"))
