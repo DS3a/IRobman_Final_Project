@@ -27,7 +27,7 @@ def run_exp(config: Dict[str, Any]):
     obj_names = [file.split('/')[-1] for file in files]
     sim = Simulation(config)
     # for obj_name in obj_names:
-    for obj_name in ["YcbPowerDrill", "YcbBanana", "YcbStrawberry"]:
+    for obj_name in ["YcbHammer", "YcbPowerDrill", "YcbBanana", "YcbStrawberry"]:
         for tstep in range(10):
             sim.reset(obj_name)
             print((f"Object: {obj_name}, Timestep: {tstep},"
@@ -90,10 +90,17 @@ def run_exp(config: Dict[str, Any]):
                     object_detection.segmentation_mask(seg)
                     )
 
-                far = 5.0
-                near = 0.01
+                position_est = PositionEstimation(config["world_settings"]["camera"])
+                position_est.determine_position(segmented_depth)
 
-                segmented_depth = far * near / (far - (far - near) * segmented_depth)
+                # camera_projection_matrix = np.array(sim.projection_matrix).reshape(4, 4)
+                # camera_projection_matrix = np.delete(camera_projection_matrix, 2, axis=0)
+
+                # position_est = PositionEstimation(config["camera"], camera_projection_matrix)
+                # camera_intrinsics = position_est.compute_camera_intrinsics()
+                # print(f"the camera intrinsics are {camera_intrinsics}")
+
+                # print(f"the projection matrix is {camera_projection_matrix}")
 
                 # cv2.imwrite("mask.jpg", segmentation_mask*100)
                 cv2.imwrite("depth.jpg", segmented_depth*10)
