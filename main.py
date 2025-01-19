@@ -65,12 +65,19 @@ def run_exp(config: Dict[str, Any]):
  
             for i in range(10000):
                 sim.step()
+                ee_pos, ee_ori = sim.robot.get_ee_pose()
+                print(f"[{i}] End Effector Position: {ee_pos}")
+                print(f"[{i}] End Effector Orientation: {ee_ori}")
+                
+                if sim.obstacles_flag: # obstacle set to True in config
+                    obs_position_guess = sim.predicted_positions
+                else: 
+                    obs_position_guess = np.zeros((2, 3))
+                    
+                print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(obs_position_guess)}")
                 # for getting renders
                 # rgb, depth, seg = sim.get_ee_renders()
                 # rgb, depth, seg = sim.get_static_renders()
-                obs_position_guess = np.zeros((2, 3))
-                print((f"[{i}] Obstacle Position-Diff: "
-                       f"{sim.check_obstacle_position(obs_position_guess)}"))
                 goal_guess = np.zeros((7,))
 
                 (rgb, depth, seg) = sim.get_static_renders()
