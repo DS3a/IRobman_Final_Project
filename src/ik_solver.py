@@ -26,7 +26,7 @@ class DifferentialIKSolver:
         return np.array(ee_state[0]), np.array(ee_state[1])
 
     def get_jacobian(self, joint_positions):
-        delta = 1e-6  # numerical differentiation step
+        delta = 1e-3  # numerical differentiation step
         jac = np.zeros((6, len(self.joint_indices)))  # 6×n jacobian
         
         # save original position
