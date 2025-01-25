@@ -94,11 +94,46 @@ def run_exp(config: Dict[str, Any]):
 
                 segmented_depth = object_detection.segment_depth_image(
                     depth, 
-                    object_detection.segmentation_mask(seg)
+                    object_detection.segmentation_mask(seg, id=5)
                     )
 
                 position_est = PositionEstimation(config["world_settings"]["camera"])
-                position_est.determine_position(segmented_depth)
+                posi = position_est.determine_position(segmented_depth)
+                print(f"the position of the object is {posi}")
+                half_size = 0.3
+
+                corners = [
+                    [posi[0]-half_size, posi[1]-half_size, posi[2]-half_size],
+                    [posi[0]+half_size, posi[1]-half_size, posi[2]-half_size],
+                    [posi[0]+half_size, posi[1]+half_size, posi[2]-half_size],
+                    [posi[0]-half_size, posi[1]+half_size, posi[2]-half_size],
+                    [posi[0]-half_size, posi[1]-half_size, posi[2]+half_size],
+                    [posi[0]+half_size, posi[1]-half_size, posi[2]+half_size],
+                    [posi[0]+half_size, posi[1]+half_size, posi[2]+half_size],
+                    [posi[0]-half_size, posi[1]+half_size, posi[2]+half_size]
+                ]
+                
+                debug_ids = []
+                # 画线的代码保持不变...
+                # 底部四条边
+                debug_ids.append(p.addUserDebugLine(corners[0], corners[1], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[1], corners[2], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[2], corners[3], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[3], corners[0], [0, 1, 0]))
+                
+                # 顶部四条边
+                debug_ids.append(p.addUserDebugLine(corners[4], corners[5], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[5], corners[6], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[6], corners[7], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[7], corners[4], [0, 1, 0]))
+                
+                # 竖直四条边
+                debug_ids.append(p.addUserDebugLine(corners[0], corners[4], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[1], corners[5], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[2], corners[6], [0, 1, 0]))
+                debug_ids.append(p.addUserDebugLine(corners[3], corners[7], [0, 1, 0]))
+    
+
 
                 # camera_projection_matrix = np.array(sim.projection_matrix).reshape(4, 4)
                 # camera_projection_matrix = np.delete(camera_projection_matrix, 2, axis=0)

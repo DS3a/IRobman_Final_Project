@@ -1,6 +1,7 @@
 import numpy as np
 import open3d as o3d
 from scipy.linalg import rq
+import pybullet as p
 
 
 class PositionEstimation:
@@ -26,10 +27,9 @@ class PositionEstimation:
             Accepts the segmented depth image, converts it to a pointcloud and determines the position by averaging the pcl
         """
 
-        position = np.array([0, 0, 0])
-
         linearized_depth = self.linearize_depth_image(segmented_depth_img)
-        self.depth_to_pcl(linearized_depth)
+        pcd = self.depth_to_pcl(linearized_depth)
+        position = np.mean(pcd.points, axis=0)
        
         return position
 
@@ -48,11 +48,17 @@ class PositionEstimation:
         cy = height / 2
         return fx, fy, cx, cy
 
-    def get_extrinsics(view_matrix):
+    def get_extrinsics(self):
         Tc = np.array([[1,  0,  0,  0],
                     [0,  -1,  0,  0],
                     [0,  0,  -1,  0],
                     [0,  0,  0,  1]]).reshape(4,4)
+        view_matrix = p.computeViewMatrix(
+            self.camera_settings['stat_cam_pos'],
+            self.camera_settings['stat_cam_target_pos'],
+            cameraUpVector=[0, 0, 1])
+        view_matrix = np.array(view_matrix).reshape(4, 4)
+
         T = np.linalg.inv(view_matrix) @ Tc
 
         return T
@@ -67,7 +73,7 @@ class PositionEstimation:
 
     def depth_to_pcl(self, linearized_depth_img):
         (fx, fy, cx, cy) = self.get_intrinsics()
-        o3d_img = o3d.geometry.Image(linearized_depth_img)
+        o3d_img = o3d.geometry.Image((linearized_depth_img*1000).astype(np.uint16))
         intrinsics = o3d.camera.PinholeCameraIntrinsic()
         intrinsics.set_intrinsics(width=self.camera_settings["width"], 
                                   height=self.camera_settings["height"], 
@@ -77,7 +83,21 @@ class PositionEstimation:
                                   cy=cy)
         point_cloud = o3d.geometry.PointCloud.create_from_depth_image(
             depth=o3d_img,
-            intrinsic=intrinsics)
+            intrinsic=intrinsics,   #)
+            extrinsic=self.get_extrinsics() )
 
-        o3d.visualization.draw_geometries([point_cloud])
+        forward = np.array(self.camera_settings['stat_cam_target_pos']) - np.array(self.camera_settings['stat_cam_pos'])
+        forward = forward / np.linalg.norm(forward)
+        right = np.cross(forward, np.array([0, 0, 1]))
+        right = right / np.linalg.norm(right)
+        up = np.cross(right, forward)
+        up = up / np.linalg.norm(up)
+        R = np.column_stack([right, up, forward])
+
+        point_cloud = point_cloud.translate(np.array(self.camera_settings["stat_cam_pos"])*(0.4))
+        # print(f"the camera position is {np.array(self.camera_settings['stat_cam_pos']).reshape(3, 1)}")
+        # point_cloud = point_cloud.rotate(R, center=np.array(self.camera_settings['stat_cam_pos']).reshape(3, 1))
+
+        coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0, origin=np.array([0., 0., 0.]))
+        o3d.visualization.draw_geometries([point_cloud, coordinate_frame])
         return point_cloud
