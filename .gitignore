@@ -125,7 +125,7 @@ celerybeat.pid
 *.sage.py
 
 # test script
-test*.py
+#test*.py
 
 # Environments
 .env
