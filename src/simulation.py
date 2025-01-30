@@ -232,10 +232,10 @@ class Simulation:
                 detected_positions = self.tracker.detect_obstacles(rgb, depth, seg)
                 self.predicted_positions = self.tracker.update(detected_positions)
                 
-                # clear bounding boxes from previous step
-                if hasattr(self, 'debug_ids'):
-                    for debug_id in self.debug_ids:
-                        p.removeUserDebugItem(debug_id)
+                # # clear bounding boxes from previous step
+                # if hasattr(self, 'debug_ids'):
+                #     for debug_id in self.debug_ids:
+                #         p.removeUserDebugItem(debug_id)
                 
                 # 3D bounding box visualization
                 self.debug_ids = self.tracker.visualize_tracking_3d(self.predicted_positions)
@@ -251,7 +251,7 @@ class Simulation:
                     print(f"  Estimated position: {est_pos}")
                     print(f"  Actual position: {actual_pos}")
                     print(f"  Position error: {np.linalg.norm(est_pos - actual_pos):.3f}m")
-                    print(f"  Estimated radius: {self.tracker.get_latest_radius(i):.3f}m")  # 添加估计半径
+                    print(f"  Estimated radius: {self.tracker.get_latest_radius(i):.3f}m")
                     print(f"  Actual radius: {actual_size:.3f}m")
                     print(f"  Radius error: {abs(self.tracker.get_latest_radius(i) - actual_size):.3f}m")
             
