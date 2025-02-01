@@ -27,8 +27,11 @@ class ObstacleTracker:
         self.n_obstacles = n_obstacles
         self.initialized = False
         
-        # Store latest radius estimates separately from Kalman filter
+        # Store latest radius estimates
         self.latest_radius = [0.0 for _ in range(n_obstacles)]
+        
+        # Store predicted positions
+        self.predicted_positions = None
         
         # kalman filters for each obstacle
         self.filters = []
@@ -252,6 +255,7 @@ class ObstacleTracker:
             predicted_positions = np.zeros((self.n_obstacles, 3))
             for i, kf in enumerate(self.filters):
                 predicted_positions[i] = kf.x[:3]
+            self.predicted_positions = predicted_positions
             return predicted_positions
             
         # init upon first detection
@@ -262,20 +266,31 @@ class ObstacleTracker:
                     self.latest_radius[i] = detection[3]    # store radius separately
             self.initialized = True
             
-        # predict
-        for kf in self.filters:
-            kf.predict()
+        # # predict
+        # for kf in self.filters:
+        #     kf.predict()
             
-        # update
-        detections = sorted(detections, key=lambda x: x[0]) # sort by x position to match sorting of potential_balls
-        for i, (kf, detection) in enumerate(zip(self.filters, detections)):
-            kf.update(detection[:3])  # update position only
-            self.latest_radius[i] = detection[3]  # update radius separately
+        # # update
+        # detections = sorted(detections, key=lambda x: x[0]) # sort by x position to match sorting of potential_balls
+        # for i, (kf, detection) in enumerate(zip(self.filters, detections)):
+        #     kf.update(detection[:3])  # update position only
+        #     self.latest_radius[i] = detection[3]  # update radius separately
             
-        # get predicted positions
+        # # get predicted positions
+        # predicted_positions = np.zeros((self.n_obstacles, 3))
+        # for i, kf in enumerate(self.filters):
+        #     predicted_positions[i] = kf.x[:3]
+        # predict and update
         predicted_positions = np.zeros((self.n_obstacles, 3))
-        for i, kf in enumerate(self.filters):
+        detections = sorted(detections, key=lambda x: x[0])
+        
+        for i, (kf, detection) in enumerate(zip(self.filters, detections)):
+            kf.predict()
+            kf.update(detection[:3])
             predicted_positions[i] = kf.x[:3]
+            self.latest_radius[i] = detection[3]
+            
+        self.predicted_positions = predicted_positions  # Store the predictions
             
         return predicted_positions
     
@@ -292,7 +307,7 @@ class ObstacleTracker:
             # access the estimated radius
             half_size = self.latest_radius[i]
             
-            # 定义立方体的8个顶点
+            # 8 corners of the bounding box
             corners = [
                 [pos[0]-half_size, pos[1]-half_size, pos[2]-half_size],
                 [pos[0]+half_size, pos[1]-half_size, pos[2]-half_size],
@@ -304,20 +319,19 @@ class ObstacleTracker:
                 [pos[0]-half_size, pos[1]+half_size, pos[2]+half_size]
             ]
             
-            # 画线的代码保持不变...
-            # 底部四条边
+            # 4 bottom edges
             debug_ids.append(p.addUserDebugLine(corners[0], corners[1], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[1], corners[2], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[2], corners[3], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[3], corners[0], [0, 1, 0]))
             
-            # 顶部四条边
+            # 4 top edges
             debug_ids.append(p.addUserDebugLine(corners[4], corners[5], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[5], corners[6], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[6], corners[7], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[7], corners[4], [0, 1, 0]))
             
-            # 竖直四条边
+            # 4 vertical edges
             debug_ids.append(p.addUserDebugLine(corners[0], corners[4], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[1], corners[5], [0, 1, 0]))
             debug_ids.append(p.addUserDebugLine(corners[2], corners[6], [0, 1, 0]))
