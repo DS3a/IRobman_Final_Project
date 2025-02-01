@@ -169,7 +169,8 @@ cython_debug/
 
 *pybullet-object-models
 
-# uv configs
 .python-version
 pyproject.toml
 uv.lock
+
+project_env
