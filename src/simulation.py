@@ -238,6 +238,7 @@ class Simulation:
                 #         p.removeUserDebugItem(debug_id)
                 
                 # 3D bounding box visualization
+                print(f"the states are {self.tracker.get_states()}")
                 self.debug_ids = self.tracker.visualize_tracking_3d(self.predicted_positions)
                 
                 # Debugging

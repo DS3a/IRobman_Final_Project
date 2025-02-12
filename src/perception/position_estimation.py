@@ -29,7 +29,7 @@ class PositionEstimation:
 
         linearized_depth = self.linearize_depth_image(segmented_depth_img)
         pcd = self.depth_to_pcl(linearized_depth)
-        position = np.mean(pcd.points, axis=0)
+        position = np.mean(pcd.points, axis=0) + np.array([-0.6, -0.5, 0.3])
        
         return position
 

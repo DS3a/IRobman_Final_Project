@@ -294,6 +294,16 @@ class ObstacleTracker:
             
         return predicted_positions
     
+    def get_states(self):
+        """
+            Returns the full state of each obstacle [(x, y, z, vx, vy, vz), ...]
+        """
+        obstacle_states = []
+        for kf in self.filters:
+            obstacle_states.append(kf.x)
+        
+        return obstacle_states
+    
     def get_latest_radius(self, obstacle_index):
         """Get the latest visually estimated radius for a given obstacle."""
         return self.latest_radius[obstacle_index]

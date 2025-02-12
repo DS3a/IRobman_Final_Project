@@ -145,13 +145,12 @@ def run_exp(config: Dict[str, Any]):
                 # print(f"the projection matrix is {camera_projection_matrix}")
 
                 # cv2.imwrite("mask.jpg", segmentation_mask*100)
-                cv2.imwrite("depth.jpg", segmented_depth*10)
+                # cv2.imwrite("depth.jpg", segmented_depth*10)
 
                 print((f"[{i}] Goal Obj Pos-Diff: "
                        f"{sim.check_goal_obj_pos(goal_guess)}"))
                 print(f"[{i}] Goal Satisfied: {sim.check_goal()}")
     sim.close()
-    cv2.destroyAllWindows()  # Close all OpenCV windows
 
 
 if __name__ == "__main__":
