@@ -265,22 +265,7 @@ class ObstacleTracker:
                     self.filters[i].x[:3] = detection[:3]  # set initial position
                     self.latest_radius[i] = detection[3]    # store radius separately
             self.initialized = True
-            
-        # # predict
-        # for kf in self.filters:
-        #     kf.predict()
-            
-        # # update
-        # detections = sorted(detections, key=lambda x: x[0]) # sort by x position to match sorting of potential_balls
-        # for i, (kf, detection) in enumerate(zip(self.filters, detections)):
-        #     kf.update(detection[:3])  # update position only
-        #     self.latest_radius[i] = detection[3]  # update radius separately
-            
-        # # get predicted positions
-        # predicted_positions = np.zeros((self.n_obstacles, 3))
-        # for i, kf in enumerate(self.filters):
-        #     predicted_positions[i] = kf.x[:3]
-        # predict and update
+
         predicted_positions = np.zeros((self.n_obstacles, 3))
         detections = sorted(detections, key=lambda x: x[0])
         
@@ -293,16 +278,6 @@ class ObstacleTracker:
         self.predicted_positions = predicted_positions  # Store the predictions
             
         return predicted_positions
-    
-    def get_states(self):
-        """
-            Returns the full state of each obstacle [(x, y, z, vx, vy, vz), ...]
-        """
-        obstacle_states = []
-        for kf in self.filters:
-            obstacle_states.append(kf.x)
-        
-        return obstacle_states
     
     def get_latest_radius(self, obstacle_index):
         """Get the latest visually estimated radius for a given obstacle."""
@@ -348,3 +323,37 @@ class ObstacleTracker:
             debug_ids.append(p.addUserDebugLine(corners[3], corners[7], [0, 1, 0]))
         
         return debug_ids
+    
+    def get_obstacle_state(self, obstacle_index):
+        """Get full state estimate for an obstacle.
+        
+        Args:
+            obstacle_index: Index of the obstacle (0 or 1)
+            
+        Returns:
+            dict containing:
+                position: np.array([x, y, z])
+                velocity: np.array([vx, vy, vz])
+                radius: float
+        """
+        if not (0 <= obstacle_index < self.n_obstacles):
+            raise ValueError(f"Invalid obstacle index: {obstacle_index}")
+            
+        if not self.initialized or self.predicted_positions is None:
+            return None
+            
+        kf = self.filters[obstacle_index]
+        state = {
+            'position': self.predicted_positions[obstacle_index],  # [x, y, z]
+            'velocity': kf.x[3:6],  # [vx, vy, vz]
+            'radius': self.latest_radius[obstacle_index]
+        }
+        return state
+        
+    def get_all_obstacle_states(self):
+        """Get state estimates for all obstacles.
+        
+        Returns:
+            List of obstacle state dictionaries
+        """
+        return [self.get_obstacle_state(i) for i in range(self.n_obstacles)]
