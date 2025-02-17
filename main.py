@@ -14,6 +14,8 @@ from src.perception.position_estimation import PositionEstimation
 import src.perception.object_detection as object_detection
 from src.controllers.ik_controller import IKController
 
+from src.local_planner.ee_velocity_controller import EEVelocityController
+
 import pybullet as p
 import cv2
 
@@ -62,9 +64,13 @@ def run_exp(config: Dict[str, Any]):
             
             # control robot
             robot.position_control(joint_positions)
+            velocity_controller = EEVelocityController(robot, ik_controller)
  
             for i in range(10000):
                 sim.step()
+                joint_positions = velocity_controller.step(np.array([10.0, 0.00, 0.00]))
+                print(f"the joint velocities are {robot.get_joint_velocites()}")
+                # robot.position_control(joint_positions)
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
                 print(f"[{i}] End Effector Position: {ee_pos}")
                 print(f"[{i}] End Effector Orientation: {ee_ori}")
