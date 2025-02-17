@@ -10,7 +10,7 @@ from typing import Dict, Any
 from pybullet_object_models import ycb_objects  # type:ignore
 from src.ik_solver import DifferentialIKSolver
 from src.simulation import Simulation
-# from src.rrt_planner import RRTStarConnect
+from src.rrt_planner import RRTStarConnect
 from src.obstacle_tracker import ObstacleTracker
 
 def run_exp(config: Dict[str, Any]):
@@ -91,17 +91,17 @@ def run_exp(config: Dict[str, Any]):
             for idx, pos in zip(sim.robot.arm_idx, original_joint_positions):
                 p.resetJointState(sim.robot.id, idx, pos)
 
-            # # 7. Init and plan path
-            # planner = RRTStarConnect(
-            #     robot=sim.robot,
-            #     obstacle_tracker=tracker,
-            #     goal_region={'position': goal_pos},
-            #     step_size=0.1, 
-            #     neighbor_radius=0.5, 
-            #     goal_bias=0 
-            # )
+            # 7. Init and plan path
+            planner = RRTStarConnect(
+                robot=sim.robot,
+                obstacle_tracker=tracker,
+                goal_region={'position': goal_pos},
+                step_size=0.1, 
+                neighbor_radius=0.5, 
+                goal_bias=0 
+            )
 
-            # path = planner.plan(start_config, goal_config)
+            path = planner.plan(start_config, goal_config)
             
             # 8. execute path in the loop
             path_index = 0
@@ -124,9 +124,9 @@ def run_exp(config: Dict[str, Any]):
                 
                 print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(pred_pos)}")
                 
-                # if path is not None and path_index < len(path):
-                #     sim.robot.position_control(path[path_index])
-                #     path_index += 1
+                if path is not None and path_index < len(path):
+                    sim.robot.position_control(path[path_index])
+                    path_index += 1
 
                 sim.step()
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
