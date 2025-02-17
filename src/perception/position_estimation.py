@@ -99,5 +99,5 @@ class PositionEstimation:
         # point_cloud = point_cloud.rotate(R, center=np.array(self.camera_settings['stat_cam_pos']).reshape(3, 1))
 
         coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0, origin=np.array([0., 0., 0.]))
-        o3d.visualization.draw_geometries([point_cloud, coordinate_frame])
+        # o3d.visualization.draw_geometries([point_cloud, coordinate_frame])
         return point_cloud
