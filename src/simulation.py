@@ -7,7 +7,6 @@ import pybullet_data
 from src.robot import Robot
 from src.objects import Obstacle, Table, Box, YCBObject, Goal
 from src.utils import pb_image_to_numpy
-from src.obstacle_tracker import ObstacleTracker
 
 
 class Simulation:
@@ -69,14 +68,6 @@ class Simulation:
         # starting the simulation
         self.exp_settings = exp_settings
 
-        self.predicted_positions = None
-        # track only when obstacles are present
-        if self.obstacles_flag:
-            self.tracker = ObstacleTracker(
-                n_obstacles=2, 
-                exp_settings=exp_settings
-            )
-            
     def reset(self, new_obj_name: Optional[str] = None):
         if new_obj_name:
             self.target_object = new_obj_name
@@ -209,53 +200,13 @@ class Simulation:
             collided_flag = True
 
         if self.obstacles_flag:
-            # 1. collision check
-            actual_positions = []
-            actual_sizes = []
             for obstacle in self.obstacles:
                 if p.getContactPoints(self.robot.id, obstacle.id):
                     print("ERROR! Robot in Collision with obstacles.")
                     collided_flag = True
                     break
-                
-                # log actual positions and sizes
-                pos = np.array(obstacle._get_pos())
-                size = obstacle.scaling
-                actual_positions.append(pos)
-                actual_sizes.append(size)
-                
                 obstacle.move()
 
-            # 2. visual tracking (if obstacles are present)
-            if not collided_flag and self.tracker is not None:
-                rgb, depth, seg = self.get_static_renders()
-                detected_positions = self.tracker.detect_obstacles(rgb, depth, seg)
-                self.predicted_positions = self.tracker.update(detected_positions)
-                
-                # # clear bounding boxes from previous step
-                # if hasattr(self, 'debug_ids'):
-                #     for debug_id in self.debug_ids:
-                #         p.removeUserDebugItem(debug_id)
-                
-                # 3D bounding box visualization
-                print(f"the states are {self.tracker.get_states()}")
-                self.debug_ids = self.tracker.visualize_tracking_3d(self.predicted_positions)
-                
-                # Debugging
-                print("\nObstacle Tracking Results:")
-                for i, obstacle in enumerate(self.obstacles):
-                    actual_pos = np.array(obstacle._get_pos())
-                    actual_size = obstacle.scaling / 2
-                    est_pos = self.predicted_positions[i]
-                    
-                    print(f"Obstacle {i}:")
-                    print(f"  Estimated position: {est_pos}")
-                    print(f"  Actual position: {actual_pos}")
-                    print(f"  Position error: {np.linalg.norm(est_pos - actual_pos):.3f}m")
-                    print(f"  Estimated radius: {self.tracker.get_latest_radius(i):.3f}m")
-                    print(f"  Actual radius: {actual_size:.3f}m")
-                    print(f"  Radius error: {abs(self.tracker.get_latest_radius(i) - actual_size):.3f}m")
-            
         if self.cam_render_flag:
             if self.mode == 1:
                 self.get_static_renders()
