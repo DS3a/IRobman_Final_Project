@@ -15,6 +15,7 @@ import src.perception.object_detection as object_detection
 from src.controllers.ik_controller import IKController
 
 from src.local_planner.ee_velocity_controller import EEVelocityController
+from src.local_planner.double_integrator_dynamics.controller import Controller as DDLocalPlanner
 
 import pybullet as p
 import cv2
@@ -57,30 +58,34 @@ def run_exp(config: Dict[str, Any]):
             target_pos, _ = robot.get_ee_pose()
             target_pos = target_pos + np.array([0.0, 0.0, 0.7])
             # move the robot out of the way so that the camera can view the object properly
-            joint_positions = ik_controller.solve_ik(
-                target_pos,
-                max_iters=10,     
-                tolerance=1e-2)
+            # joint_positions = ik_controller.solve_ik(
+            #     target_pos,
+            #     max_iters=10,     
+            #     tolerance=1e-2)
             
             # control robot
-            robot.position_control(joint_positions)
+            # robot.position_control(joint_positions)
             velocity_controller = EEVelocityController(robot, ik_controller)
+            local_planner = DDLocalPlanner(robot, velocity_controller)
  
+            joint_positions = velocity_controller.step(np.array([-2.00, -1.00, 0.00]))
+            
             for i in range(10000):
                 sim.step()
-                joint_positions = velocity_controller.step(np.array([10.0, 0.00, 0.00]))
                 print(f"the joint velocities are {robot.get_joint_velocites()}")
                 # robot.position_control(joint_positions)
+                time = i/sim.timestep
+                # local_planner.step(time)
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
                 print(f"[{i}] End Effector Position: {ee_pos}")
                 print(f"[{i}] End Effector Orientation: {ee_ori}")
                 
-                if sim.obstacles_flag: # obstacle set to True in config
-                    obs_position_guess = sim.predicted_positions
-                else: 
-                    obs_position_guess = np.zeros((2, 3))
+                # if sim.obstacles_flag: # obstacle set to True in config
+                #     obs_position_guess = sim.predicted_positions
+                # else: 
+                #     obs_position_guess = np.zeros((2, 3))
                     
-                print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(obs_position_guess)}")
+                # print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(obs_position_guess)}")
                 # for getting renders
                 # rgb, depth, seg = sim.get_ee_renders()
                 # rgb, depth, seg = sim.get_static_renders()
