@@ -5,7 +5,7 @@ import math
 class SystemModel:
     def __init__(self):
         self.q1, self.q2, self.q3, self.q4, self.q5, self.q6, self.q7 = sp.symbols("q_1 q_2 q_3 q_4 q_5 q_6 q_7")
-        # self.q1_dot, self.q2_dot, self.q3_dot, self.q4_dot, self.q5_dot, self.q6_dot, self.q7_dot = sp.symbols("q_1_dot q_2_dot q_3_dot q_4_dot q_5_dot q_6_dot q_7_dot")
+        self.q1_dot, self.q2_dot, self.q3_dot, self.q4_dot, self.q5_dot, self.q6_dot, self.q7_dot = sp.symbols("q_1_dot q_2_dot q_3_dot q_4_dot q_5_dot q_6_dot q_7_dot")
 
         self.X = sp.Matrix([
             self.q1,
@@ -25,20 +25,20 @@ class SystemModel:
         ])
 
         self.f = sp.Matrix([
-            self.q1_dot,
-            self.q2_dot,
-            self.q3_dot,
-            self.q4_dot,
-            self.q5_dot,
-            self.q6_dot,
-            self.q7_dot,
-            # 0,
-            # 0,
-            # 0,
-            # 0,
-            # 0,
-            # 0,
-            # 0,
+            # self.q1_dot,
+            # self.q2_dot,
+            # self.q3_dot,
+            # self.q4_dot,
+            # self.q5_dot,
+            # self.q6_dot,
+            # self.q7_dot,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         ])
 
         # self.g = sp.Matrix(np.concatenate([np.zeros((7, 1)), np.eye(7)]))
