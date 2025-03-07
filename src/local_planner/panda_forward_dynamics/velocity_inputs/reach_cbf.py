@@ -13,7 +13,8 @@ class ReachCBF:
         self.dist = diff.dot(diff)
 
 
-        self.temporal_fn = 1.2*sp.exp(-2*self.t) + 0.005
+        self.temporal_fn = 0.5*sp.exp(-2*self.t) + 0.05
+        # self.temporal_fn = 3*sp.exp(-2*self.t) + 0.05
         # Start 3 metres away from the goal reticle, and get within 5cm of it in 12 seconds
         
         self.barrier_fn = self.temporal_fn - self.dist
