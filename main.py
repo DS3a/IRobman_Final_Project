@@ -66,21 +66,21 @@ def run_exp(config: Dict[str, Any]):
             
             # control robot
             # robot.position_control(joint_positions)
-            velocity_controller = EEVelocityController(robot, ik_controller)
-            local_planner = DDLocalPlanner(robot, velocity_controller)
+            # velocity_controller = EEVelocityController(robot, ik_controller)
+            # local_planner = DDLocalPlanner(robot, velocity_controller)
             panda_planner = PandaVelocityLocalPlanner(robot)
+            joint_positions = robot.get_joint_positions()
 
-
-            joint_positions = velocity_controller.step(np.array([-2.00, -1.00, 0.00]))
             
             for i in range(10000):
                 sim.step()
                 print(f"the joint velocities are {robot.get_joint_velocites()}")
                 # robot.position_control(joint_positions)
-                time = i/sim.timestep
+                time = i*sim.timestep
                 # local_planner.step(time)
                 joint_velocities = panda_planner.step(time)
-                joint_positions += joint_velocities/(sim.timestep*5)
+                joint_positions += joint_velocities*(sim.timestep)
+                # joint_positions[6] -= 0.1*i
                 robot.position_control(joint_positions)
 
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
