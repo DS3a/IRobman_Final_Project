@@ -219,103 +219,49 @@ def get_ee_camera_params(robot, config):
     
     return camera_pos, camera_R
 
-# for linear trajectory in Cartesian space
-def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, target_orn, steps=100):
+def iterative_closest_point(collected_data):
     """
-    generate linear Cartesian trajectory in Cartesian space
-    """
-    # set start position
-    for i, joint_idx in enumerate(ik_solver.joint_indices):
-        p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
-    
-    # get current end-effector pose
-    start_pos, _ = ik_solver.get_current_ee_pose()
-    
-    # generate linear trajectory
-    trajectory = []
-    for step in range(steps + 1):
-        t = step / steps  # normalize step
-        
-        # linear interpolation
-        pos = start_pos + t * (target_pos - start_pos)
-        
-        # solve IK for current Cartesian position
-        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.01)
-        
-        # add solution to trajectory
-        trajectory.append(current_joints)
-        
-        # reset to start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
-            p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
-    
-    return trajectory
-
-# for trajectory in joint space
-def generate_trajectory(start_joints, end_joints, steps=100):
-    """
-    generate smooth trajectory from start to end joint positions
+    Merge multiple point clouds using ICP registration
     
     Parameters:
-    start_joints: start joint positions
-    end_joints: end joint positions
-    steps: number of steps for interpolation
+    collected_data: list of dictionaries containing point cloud data
     
     Returns:
-    trajectory: list of joint positions
+    merged_pcd: merged point cloud
     """
-    trajectory = []
-    for step in range(steps + 1):
-        t = step / steps  # normalize step
-        # linear interpolation
-        point = [start + t * (end - start) for start, end in zip(start_joints, end_joints)]
-        trajectory.append(point)
-    return trajectory
-
-def generate_rrt_star_trajectory(sim, rrt_planner, start_joints, target_joints, visualize=True):
-    """
-    Generate a collision-free trajectory using RRT* planning.
-    
-    Args:
-        sim: Simulation instance
-        rrt_planner: RRTStarPlanner instance
-        start_joints: Start joint configuration
-        target_joints: Target joint configuration
-        visualize: Whether to visualize the planning process
+    if not collected_data:
+        return None
         
-    Returns:
-        Smooth trajectory as list of joint configurations
-    """
-    print("Planning path with RRT*...")
+    # Use the first point cloud as reference
+    merged_pcd = collected_data[0]['point_cloud']
     
-    # Plan path using RRT*
-    path, path_cost = rrt_planner.plan(start_joints, target_joints)
+    # ICP parameters
+    threshold = 0.005  # distance threshold
+    trans_init = np.eye(4)  # initial transformation
     
-    if not path:
-        print("Failed to find a valid path!")
-        return []
-    
-    print(f"Path found with {len(path)} waypoints and cost {path_cost:.4f}")
-    
-    # Generate smooth trajectory
-    trajectory = rrt_planner.generate_smooth_trajectory(path, smoothing_steps=20)
-    
-    print(f"Generated smooth trajectory with {len(trajectory)} points")
-    
-    # Visualize the path if requested
-    if visualize:
-        # Clear previous visualization
-        rrt_planner.clear_visualization()
+    # Merge remaining point clouds
+    for i in range(1, len(collected_data)):
+        current_pcd = collected_data[i]['point_cloud']
         
-        # Visualize the path
-        for i in range(len(path) - 1):
-            start_ee, _ = rrt_planner._get_current_ee_pose(path[i])
-            end_ee, _ = rrt_planner._get_current_ee_pose(path[i+1])
-            
-            p.addUserDebugLine(
-                start_ee, end_ee, [0, 0, 1], 3, 0)
-            
-    return trajectory
+        # Perform ICP
+        reg_p2p = o3d.pipelines.registration.registration_icp(
+            current_pcd, merged_pcd, threshold, trans_init,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
+        )
+        
+        # Transform current point cloud
+        current_pcd.transform(reg_p2p.transformation)
+        
+        # Merge point clouds
+        merged_pcd += current_pcd
+        
+        # Optional: Remove duplicates using voxel downsampling
+        merged_pcd = merged_pcd.voxel_down_sample(voxel_size=0.005)
+        
+        print(f"Merged point cloud {i+1}, fitness: {reg_p2p.fitness}")
+    
+    return merged_pcd
 
 def visualize_point_clouds(collected_data, show_frames=True, show_merged=True):
     """
@@ -364,50 +310,6 @@ def visualize_point_clouds(collected_data, show_frames=True, show_merged=True):
     print("Launching Open3D visualization...")
     o3d.visualization.draw_geometries(geometries)
 
-def iterative_closest_point(collected_data):
-    """
-    Merge multiple point clouds using ICP registration
-    
-    Parameters:
-    collected_data: list of dictionaries containing point cloud data
-    
-    Returns:
-    merged_pcd: merged point cloud
-    """
-    if not collected_data:
-        return None
-        
-    # Use the first point cloud as reference
-    merged_pcd = collected_data[0]['point_cloud']
-    
-    # ICP parameters
-    threshold = 0.005  # distance threshold
-    trans_init = np.eye(4)  # initial transformation
-    
-    # Merge remaining point clouds
-    for i in range(1, len(collected_data)):
-        current_pcd = collected_data[i]['point_cloud']
-        
-        # Perform ICP
-        reg_p2p = o3d.pipelines.registration.registration_icp(
-            current_pcd, merged_pcd, threshold, trans_init,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
-        )
-        
-        # Transform current point cloud
-        current_pcd.transform(reg_p2p.transformation)
-        
-        # Merge point clouds
-        merged_pcd += current_pcd
-        
-        # Optional: Remove duplicates using voxel downsampling
-        merged_pcd = merged_pcd.voxel_down_sample(voxel_size=0.005)
-        
-        print(f"Merged point cloud {i+1}, fitness: {reg_p2p.fitness}")
-    
-    return merged_pcd
-
 def run(config):
     """
     main function to run point cloud collection from multiple viewpoints
@@ -423,10 +325,22 @@ def run(config):
     obj_names = [os.path.basename(file) for file in files]
     # target_obj_name = random.choice(obj_names)
     # print(f"Resetting simulation with random object: {target_obj_name}")
-    target_obj_name = "YcbMustardBottle"
+    # All objects: 
+    # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
+    # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
+    # High objects: YcbCrackerBox, YcbMustardBottle, 
+    # Unstable objects: YcbChipsCan， YcbPowerDrill
+    target_obj_name = "YcbTennisBall" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
+    
+    # Wait for objects to settle before collecting point clouds
+    print("Waiting for objects to settle...")
+    for _ in range(100):
+        sim.step()
+        time.sleep(1/240.)
+    print("Objects settled, starting point cloud collection")
     
     # Initialize obstacle tracker
     obstacle_tracker = ObstacleTracker(n_obstacles=2, exp_settings=config)
@@ -436,14 +350,27 @@ def run(config):
     
     # Define target positions and orientations
     target_positions = [
-        np.array([0, -0.3, 1.6]),
-        np.array([-0.2, -0.6, 1.6]),
-        np.array([0.2, -0.6, 1.6]),
+        # 3 viewpoints
+        np.array([-0.015, -0.3, 1.6]),
+        np.array([-0.215, -0.6, 1.6]),
+        np.array([0.185, -0.6, 1.6]),
+        # 4 viewpoints
+        # np.array([-0.02, -0.3, 1.6]),
+        # np.array([-0.02, -0.6, 1.6]),
+        # np.array([-0.22, -0.45, 1.6]),
+        # np.array([0.18, -0.45, 1.6]),
+
     ]
     target_orientations = [
-        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
+        # 3 viewpoints
+        p.getQuaternionFromEuler([np.radians(140), 0, 0]),
         p.getQuaternionFromEuler([np.radians(-150), np.radians(-30), 0]), 
-        p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0])
+        p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0]),
+        # 4 viewpoints
+        # p.getQuaternionFromEuler([np.radians(135), 0, 0]),
+        # p.getQuaternionFromEuler([np.radians(-135), 0, 0]),
+        # p.getQuaternionFromEuler([0, np.radians(135), 0]), 
+        # p.getQuaternionFromEuler([0, np.radians(-135), 0])
     ]
     
     # For each viewpoint
@@ -457,74 +384,16 @@ def run(config):
         
         # Get current joint positions
         current_joints = sim.robot.get_joint_positions()
-        # Save current joint positions
-        saved_joints = current_joints.copy()
         
         # Solve IK for target end-effector pose
         ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
         target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
         
-        # Reset to saved start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
-            p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
-        
-        # Initialize RRT* planner
-        rrt_planner = RRTStarPlanner(
-            robot_id=sim.robot.id,
-            joint_indices=ik_solver.joint_indices,
-            lower_limits=sim.robot.lower_limits,
-            upper_limits=sim.robot.upper_limits,
-            ee_link_index=sim.robot.ee_idx,
-            obstacle_tracker=obstacle_tracker,
-            max_iterations=1000,
-            step_size=0.2,
-            goal_sample_rate=0.05,
-            search_radius=0.5,
-            goal_threshold=0.1,
-            collision_check_step=0.05
-        )
-        
-        choice = 2  # Change this to test different methods
-        
-        trajectory = []
-        if choice == 1:
-            print("Generating linear Cartesian trajectory...")
-            trajectory = generate_cartesian_trajectory(sim, ik_solver, saved_joints, target_pos, target_orn, steps=100)
-        elif choice == 2:
-            print("Generating linear joint space trajectory...")
-            trajectory = generate_trajectory(saved_joints, target_joints, steps=100)
-        else:
-            print("Generating RRT* trajectory...")
-            trajectory = generate_rrt_star_trajectory(sim, rrt_planner, saved_joints, target_joints)
-        
-        if not trajectory:
-            print(f"Failed to generate trajectory for viewpoint {viewpoint_idx + 1}. Skipping...")
-            continue
-        
-        print(f"Generated trajectory with {len(trajectory)} points")
-        
-        # Reset to saved start position again before executing trajectory
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
-            p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
-        
-        # Move robot along trajectory to target position
-        for joint_target in trajectory:
-            # Update obstacle tracking
-            rgb_static, depth_static, seg_static = sim.get_static_renders()
-            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-            tracked_positions = obstacle_tracker.update(detections)
-            
-            # Visualize tracked obstacles
-            # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
-            # if bounding_box:
-            #     for debug_line in bounding_box:
-            #         p.removeUserDebugItem(debug_line)
-            
-            # Move robot
-            sim.robot.position_control(joint_target)
-            for _ in range(1):
-                sim.step()
-                time.sleep(1/240.)
+        # Directly set robot to target joints
+        sim.robot.position_control(target_joints)
+        for _ in range(5):  # Give some time for physics to settle
+            sim.step()
+            time.sleep(1/240.)
         
         # Capture point cloud at this viewpoint
         rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
