@@ -1,6 +1,8 @@
 import numpy as np
 import pybullet as p
 from typing import List, Tuple, Optional
+from src.local_planner.panda_forward_dynamics.velocity_inputs.system_model import SystemModel
+from scipy.spatial.transform import Rotation as R
 
 class IKController:
     """Inverse Kinematics Controller using Pseudo-inverse Method"""
@@ -25,6 +27,8 @@ class IKController:
         print(f"End effector index: {ee_index}")
         print(f"Number of controlled joints: {self.num_joints}")
         
+
+        self.system_model = SystemModel()
         self._verify_robot_setup()
     
     def _verify_robot_setup(self):
@@ -50,7 +54,8 @@ class IKController:
         jac = np.zeros((6, len(self.joint_indices)))  # 6×n jacobi matrix
         
         # save original joint positions
-        original_positions = joint_positions.copy()
+        original_positions = np.copy(joint_positions.copy())
+        print(f"THE original positions are {original_positions}")
         
         # acquire current end effector pose
         current_pos, current_orn = self._get_current_ee_pose()
@@ -58,18 +63,42 @@ class IKController:
         # partial differentiation for each joint
         for i in range(len(self.joint_indices)):
             # perturb joint position
-            joint_positions = original_positions.copy()
-            joint_positions[i] += delta
+            joint_positions_ = np.copy(original_positions)
+            joint_positions_[i] += delta
             
            
             # TODO use the forward kinematics function instead of this to find the new position and orientation
             # update joint states
-            for idx, pos in zip(self.joint_indices, joint_positions):
+
+
+
+            # frames = self.system_model.forward_kinematics_fast(joint_positions)
+            # ee_frame = frames[6]
+            # numpy_matrix = joint_positions.reshape((7, 1))
+            # sympy_matrix = self.system_model.X
+        
+            # mapping = {sympy_matrix[i, 0]: numpy_matrix[i, 0] for i in range(7)}
+ 
+            # ee_frame = ee_frame.subs(mapping)
+
+
+            for idx, pos in zip(self.joint_indices, joint_positions_):
                 p.resetJointState(self.robot_id, idx, pos)
-            
+                # print(f"ORIGINAL joints {original_positions} current {joint_positions}")
+
+
+
+            # new_pos = np.array(ee_frame[:3, 3])
+            # new_rot_mat = np.array(ee_frame[:3, :3])
+            # rot_mat = R.from_matrix(new_rot_mat)
+            # new_orn = rot_mat.as_quat()
+
+
             # acquire new end effector pose
             new_pos, new_orn = self._get_current_ee_pose()
             
+            # print(f"THE new frame is {ee_frame[0, 0:3]}")
+            # print(f"VS newpos fwd {new_pos_}, {new_pos}")
             # position jacobian
             jac[:3, i] = (new_pos - current_pos) / delta
             
@@ -79,7 +108,10 @@ class IKController:
             jac[3:, i] = np.array(orn_diff[:3]) / delta  # only use imaginary part of quaternion
             
         # restore original joint positions
+        
+        print(f"THE original positions are {original_positions}")
         for idx, pos in zip(self.joint_indices, original_positions):
+            # print(f"ORIGINAL joints {original_positions} current {joint_positions}")
             p.resetJointState(self.robot_id, idx, pos)
             
         return jac
@@ -99,13 +131,16 @@ class IKController:
         print(f"\nSolving IK:")
         print(f"Target position: {target_pos}")
         print(f"Target orientation: {target_orn if target_orn is not None else 'None'}")
+
+        original_joint_positions = None
         
         try:
             # acquire initial joint positions
             current_joint_positions = np.array([p.getJointState(self.robot_id, idx)[0] 
                                             for idx in self.joint_indices])
             print(f"Initial joint positions: {current_joint_positions}")
-            
+
+            original_joint_positions = current_joint_positions.copy() 
             for iter in range(max_iters):
                 # acquire current end effector pose
                 current_pos, current_orn = self._get_current_ee_pose()
@@ -145,6 +180,9 @@ class IKController:
                 # set joint states for next iteration
                 for i, idx in enumerate(self.joint_indices):
                     p.resetJointState(self.robot_id, idx, current_joint_positions[i])
+
+            for i, idx in enumerate(self.joint_indices):
+                p.resetJointState(self.robot_id, idx, original_joint_positions[i])
             
             return current_joint_positions
             
@@ -165,9 +203,41 @@ class IKController:
         target_mat = np.array(p.getMatrixFromQuaternion(target_orn)).reshape(3, 3)
         
         error_mat = target_mat @ current_mat.T
-        angle_axis = p.getAxisAngleFromMatrix(error_mat.flatten().tolist())
+        axis, theta = rotation_matrix_to_axis_angle(error_mat)
+        # angle_axis = p.getAxisAngleFromMatrix(error_mat.flatten().tolist())
         
-        if angle_axis[3] < 0:
-            angle_axis = [-x for x in angle_axis]
+        if theta < 0:
+            axis = [-x for x in axis]
             
-        return np.array(angle_axis[:3]) * angle_axis[3]
+        return np.array(axis[:3]) * theta
+
+
+def rotation_matrix_to_axis_angle(R: np.ndarray):
+    """
+    Convert a 3x3 rotation matrix to axis-angle representation.
+
+    Args:
+        R (np.ndarray): 3x3 rotation matrix
+
+    Returns:
+        axis (np.ndarray): 3D unit vector representing the rotation axis
+        angle (float): Rotation angle in radians
+    """
+    # Ensure R is a numpy array
+    R = np.array(R)
+
+    # Compute rotation angle
+    theta = np.arccos((np.trace(R) - 1) / 2.0)
+
+    # Handle small angles to avoid division by zero
+    if np.isclose(theta, 0):
+        return np.array([1, 0, 0]), 0  # No rotation
+
+    # Compute rotation axis
+    axis = np.array([
+        R[2, 1] - R[1, 2],
+        R[0, 2] - R[2, 0],
+        R[1, 0] - R[0, 1]
+    ]) / (2 * np.sin(theta))
+
+    return axis, theta

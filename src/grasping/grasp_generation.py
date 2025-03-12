@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Tuple, Sequence, Optional
+from typing import Tuple, Sequence, Optional, Any
 import open3d as o3d
 
 
@@ -67,7 +67,8 @@ class GraspGeneration:
     def check_grasp_collision(
         self,
         grasp_meshes: Sequence[o3d.geometry.TriangleMesh],
-        object_mesh: o3d.geometry.TriangleMesh,
+        # object_mesh: o3d.geometry.TriangleMesh,
+        object_pcd,
         num_colisions: int = 10,
         tolerance: float = 0.00001) -> bool:
         """
@@ -91,7 +92,8 @@ class GraspGeneration:
         # Sample points from both meshes
         num_points = 5000 # Subsample both meshes to this many points
         gripper_pcl = combined_gripper.sample_points_uniformly(number_of_points=num_points)
-        object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
+        # object_pcl = object_mesh.sample_points_uniformly(number_of_points=num_points)
+        object_pcl = object_pcd
 
         # Build KDTree for object points
         is_collision = False
@@ -169,37 +171,41 @@ class GraspGeneration:
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
         # tolerance = 0.00001
-        # rays_hit = 0
-        # contained = False
+        rays_hit = 0
+        contained = False
+        rays = []
         # max_interception_depth = 0
         # photon_translation = 1/50000  # I chose this as we are sampling the object into 50000 points
-        # for i in range(num_rays):
-        #     print(f"ray {i+1}/{num_rays}")
-        #     # we are casting a ray from the right finger to the left
-        #     right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-        #     photon_position = right_new_center.copy()
-        #     num_collisions = 0
-        #     first_collision_point = None
-        #     while np.linalg.norm(right_new_center - photon_position) < hand_width:
-        #         # check if the photon collides with the pointcloud
-        #         [_, idx, distance] = object_tree.search_knn_vector_3d(photon_position, 1)
-        #         if distance[0] < tolerance:
-        #             num_collisions += 1
-        #             print("collision detected")
-        #             if num_collisions == 1:
-        #                 first_collision_point = photon_position.copy()
-        #                 print(f"the first collision point is {first_collision_point}")
-        #             elif num_collisions == 2:
-        #                 interception_depth = np.linalg.norm(photon_position - first_collision_point)
-        #                 max_interception_depth = max(max_interception_depth, interception_depth)
-        #                 print(f"the second collision is at {photon_position}")
-        #                 print(f"the interception depth is {interception_depth}")
-        #                 num_collisions = 0
-        #                 break
-        #             rays_hit += 1
-        #         photon_position += ray_direction*photon_translation
+        
+        # move the right centre to the start of the finger instead of the geometric centre
+        right_center = right_center - rotation_matrix.dot(finger_vec/2)
+        for i in range(num_rays):
+            print(f"ray {i+1}/{num_rays}")
+            # we are casting a ray from the right finger to the left
+            right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
+            # photon_position = right_new_center.copy()
+            # num_collisions = 0
+            # first_collision_point = None
+            # # while np.linalg.norm(right_new_center - photon_position) < hand_width:
+            #     # check if the photon collides with the pointcloud
+            #     [_, idx, distance] = object_tree.search_knn_vector_3d(photon_position, 1)
+            #     if distance[0] < tolerance:
+            #         num_collisions += 1
+            #         print("collision detected")
+            #         if num_collisions == 1:
+            #             first_collision_point = photon_position.copy()
+            #             print(f"the first collision point is {first_collision_point}")
+            #         elif num_collisions == 2:
+            #             interception_depth = np.linalg.norm(photon_position - first_collision_point)
+            #             max_interception_depth = max(max_interception_depth, interception_depth)
+            #             print(f"the second collision is at {photon_position}")
+            #             print(f"the interception depth is {interception_depth}")
+            #             num_collisions = 0
+            #             break
+            #         rays_hit += 1
+            #     photon_position += ray_direction*photon_translation
 
-            # rays.append([np.concatenate([right_new_center, ray_direction])])
+            rays.append([np.concatenate([right_new_center, ray_direction])])
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)

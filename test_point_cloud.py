@@ -11,6 +11,8 @@ from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
+from src.grasping.grasp_generation import GraspGeneration
+
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
@@ -570,22 +572,31 @@ def run(config):
         except ValueError as e:
             print(f"Error building point cloud for viewpoint {viewpoint_idx + 1}:", e)
     
-    sim.close()
-    return collected_data
+    # sim.close()
+    return collected_data, sim
 
 if __name__ == "__main__":
     with open("configs/test_config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
     # Run simulation and collect point clouds
-    collected_point_clouds = run(config)
+    collected_point_clouds, sim = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
         # First show individual point clouds
-        print("\nVisualizing individual point clouds...")
-        visualize_point_clouds(collected_point_clouds, show_merged=False)
+        # print("\nVisualizing individual point clouds...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=False)
         
         # Then show merged point cloud
         print("\nVisualizing merged point cloud...")
         visualize_point_clouds(collected_point_clouds, show_merged=True)
+
+        # get the merged pointcloud
+        merged_pcd = iterative_closest_point(collected_point_clouds)
+
+        centre_point = np.asarray(merged_pcd.points).mean(axis=1)
+        print(f"the centre point is {centre_point}")
+        
+        grasp_generator = GraspGeneration()
+

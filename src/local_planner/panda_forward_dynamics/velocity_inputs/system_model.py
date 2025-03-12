@@ -76,9 +76,33 @@ class SystemModel:
 
         frame = sp.Matrix(np.eye(4))
         for i in range(7):
-            frame = frame*self.TF_matrix(i)
+            frame = frame.dot(self.TF_matrix(i))
             frames.append(frame)
 
         return frames
         
+    def TF_matrix_with_angle(self, i, q):
+        # print(f"THE angle is {q}")
+        # Define Transformation matrix based on DH params
+        dh = self.dh
+        alpha = dh[i][0]
+        a = dh[i][1]
+        d = dh[i][2]
+        
+        TF = np.array([
+            [sp.cos(q),-sp.sin(q), 0, a],
+            [sp.sin(q)*sp.cos(alpha), sp.cos(q)*sp.cos(alpha), -sp.sin(alpha), -sp.sin(alpha)*d],
+            [sp.sin(q)*sp.sin(alpha), sp.cos(q)*sp.sin(alpha),  sp.cos(alpha),  sp.cos(alpha)*d],
+            [   0,  0,  0,  1]])
+        return TF
+ 
+    def forward_kinematics_fast(self, joint_angles):
+        # print(f"THE angles are {joint_angles}")
+        frames = []
+        frame = np.eye(4)
+        for i in range(7):
+            frame = frame.dot(self.TF_matrix_with_angle(i, joint_angles[i]))
+            frames.append(frame)
 
+        # print(f"THE angles are {frame}")
+        return frames

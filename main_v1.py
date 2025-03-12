@@ -12,6 +12,7 @@ from src.ik_solver import DifferentialIKSolver
 from src.simulation import Simulation
 from src.rrt_planner import RRTStarConnect
 from src.obstacle_tracker import ObstacleTracker
+from src.local_planner.panda_forward_dynamics.velocity_inputs.controller import Controller as LocalPlanner
 
 def run_exp(config: Dict[str, Any]):
     print("Simulation Start:")
@@ -21,6 +22,7 @@ def run_exp(config: Dict[str, Any]):
     obj_names = [file.split('/')[-1] for file in files]
     sim = Simulation(config)
     
+
     # track init
     tracker = None
     debug_ids = []
@@ -101,6 +103,7 @@ def run_exp(config: Dict[str, Any]):
                 goal_bias=0 
             )
 
+            local_planner = LocalPlanner(sim.robot)
             path = planner.plan(start_config, goal_config)
             
             # 8. execute path in the loop
@@ -125,7 +128,14 @@ def run_exp(config: Dict[str, Any]):
                 print(f"[{i}] Obstacle Position-Diff: {sim.check_obstacle_position(pred_pos)}")
                 
                 if path is not None and path_index < len(path):
-                    sim.robot.position_control(path[path_index])
+                    local_planner.reach_clf.set_destination(path[path_index])
+                    joint_velocities = local_planner.step(0)
+                    new_positions = sim.robot.get_joint_positions()
+                    new_positions += joint_velocities*(sim.timestep)
+                    # sim.robot.velocity_control(joint_velocities*100)
+                    sim.robot.position_control(new_positions)
+
+                    # sim.robot.position_control(path[path_index])
                     path_index += 1
 
                 sim.step()

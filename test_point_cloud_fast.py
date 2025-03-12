@@ -11,6 +11,8 @@ from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
+from src.grasping.grasp_generation import GraspGeneration
+from src.grasping import utils
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
@@ -137,7 +139,7 @@ def get_camera_extrinsic(camera_pos, camera_R):
     
     return extrinsic
 
-def build_object_point_cloud_ee(rgb, depth, seg, target_mask_id, config, camera_pos, camera_R):
+def build_object_point_cloud_ee(rgb, depth, seg, target_mask_id, config, camera_pos, camera_R, table_mask_id=2):
     """
     build object point cloud using end-effector camera RGB, depth, segmentation data
     
@@ -163,6 +165,8 @@ def build_object_point_cloud_ee(rgb, depth, seg, target_mask_id, config, camera_
     
     # create target object mask
     object_mask = (seg == target_mask_id)
+    # table_mask = (seg == table_mask_id)
+    # object_mask += table_mask
     if np.count_nonzero(object_mask) == 0:
         raise ValueError(f"Target mask ID {target_mask_id} not found in segmentation.")
     
@@ -330,7 +334,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbTennisBall" 
+    target_obj_name = "YcbMustardBottle" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -439,22 +443,92 @@ def run(config):
         except ValueError as e:
             print(f"Error building point cloud for viewpoint {viewpoint_idx + 1}:", e)
     
-    sim.close()
-    return collected_data
+    # sim.close()
+    return collected_data, sim
+
+def run_grasping(config, sim, collected_point_clouds):
+    merged_pcd = iterative_closest_point(collected_point_clouds)
+    centre_point = np.asarray(merged_pcd.points)
+    centre_point = centre_point.mean(axis=0)
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    # target_pos = centre_point + np.array([0, 0, 0.2])
+
+    current_joints = sim.robot.get_joint_positions()
+    target_orn = p.getQuaternionFromEuler([np.radians(90), 0, 0])
+    # target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
+        
+    # Directly set robot to target joints
+    # sim.robot.position_control(target_joints)
+
+    grasp_generator = GraspGeneration()
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    all_grasp_meshes = []
+    for grasp in sampled_grasps:
+        R, grasp_center = grasp
+        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+
+
+    obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=merged_pcd, 
+                                                                                          alpha=0.08)
+ 
+    highest_containment = 0
+    highest_containment_grasp = None
+    best_grasp = None
+    ##################################################
+    vis_meshes = [obj_triangle_mesh]
+    for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+        if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
+            intersections, containement_ratio = grasp_generator.check_grasp_containment(grasp_mesh[0].get_center(), 
+                                                                                        grasp_mesh[1].get_center(),
+                                                                                        finger_length=0.05,
+                                                                                        object_pcd=merged_pcd,
+                                                                                        num_rays=50,
+                                                                                        rotation_matrix=pose[0],
+                                                                                        )
+            # find the highest containment ratio
+            if containement_ratio > highest_containment:
+                highest_containment = containement_ratio
+                highest_containment_grasp = grasp_mesh
+                best_grasp = pose
+
+    vis_meshes.extend(highest_containment_grasp)
+
+    utils.visualize_3d_objs(vis_meshes)
+    rot, translation = best_grasp
+    goal_pos = merged_pcd.get_center() + translation
+    print(f"the goal position is {goal_pos}")
+    rot_quat = p.get
+    print(f"opening the gripper")
+    sim.robot.control_gripper()
+
+    # Now, I need to execute the grasp
+    
 
 if __name__ == "__main__":
     with open("configs/test_config.yaml", "r") as stream:
         config = yaml.safe_load(stream)
     # Run simulation and collect point clouds
-    collected_point_clouds = run(config)
+    collected_point_clouds, sim = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
     
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
         # First show individual point clouds
-        print("\nVisualizing individual point clouds...")
-        visualize_point_clouds(collected_point_clouds, show_merged=False)
+        # print("\nVisualizing individual point clouds...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=False)
         
         # Then show merged point cloud
+        # print("\nVisualizing merged point cloud...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=True)
+
+        # merged_pcd = iterative_closest_point(collected_point_clouds)
+        # centre_point = np.asarray(merged_pcd.points)
+        # centre_point = centre_point.mean(axis=0)
+
+        print("\nRunning grasping")        
+        run_grasping(config, sim, collected_point_clouds)
         print("\nVisualizing merged point cloud...")
         visualize_point_clouds(collected_point_clouds, show_merged=True)
+
+
+        # print(f"the shape of the centre point is {centre_point.shape}, and it's mean is {centre_point.mean(axis=0)}")

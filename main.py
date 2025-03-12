@@ -12,7 +12,8 @@ from src.simulation import Simulation
 from src.perception.pose_estimation import PoseEstimation
 from src.perception.position_estimation import PositionEstimation
 import src.perception.object_detection as object_detection
-from src.controllers.ik_controller import IKController
+# from src.controllers.ik_controller import IKController
+from src.local_planner.ik_solver import IKController
 
 from src.local_planner.ee_velocity_controller import EEVelocityController
 from src.local_planner.double_integrator_dynamics.controller import Controller as DDLocalPlanner
@@ -34,8 +35,8 @@ def run_exp(config: Dict[str, Any]):
     for obj_name in ["YcbHammer", "YcbPowerDrill", "YcbBanana", "YcbStrawberry"]:
         for tstep in range(10):
             sim.reset(obj_name)
-            print((f"Object: {obj_name}, Timestep: {tstep},"
-                   f" pose: {sim.get_ground_tuth_position_object}"))
+            # print((f"Object: {obj_name}, Timestep: {tstep},"
+            #        f" pose: {sim.get_ground_tuth_position_object}"))
             pos, ori = sim.robot.pos, sim.robot.ori
             print(f"Robot inital pos: {pos} orientation: {ori}")
             l_lim, u_lim = sim.robot.lower_limits, sim.robot.upper_limits
@@ -50,15 +51,15 @@ def run_exp(config: Dict[str, Any]):
             print(f"Robot End Effector Orientation: {ee_ori}")
 
             robot = sim.get_robot()
-            ik_controller = IKController(
-                    robot_id=robot.id,
-                    joint_indices=robot.arm_idx,
-                    ee_index=robot.ee_idx
-                )
+            # ik_controller = IKController(
+            #         robot_id=robot.id,
+            #         joint_indices=robot.arm_idx,
+            #         ee_index=robot.ee_idx
+            #     )
 
-            target_pos, _ = robot.get_ee_pose()
-            target_pos = target_pos + np.array([0.0, 0.0, 0.7])
-            # move the robot out of the way so that the camera can view the object properly
+            # target_pos, _ = robot.get_ee_pose()
+            # target_pos = target_pos + np.array([0.0, 0.0, 0.7])
+            # # move the robot out of the way so that the camera can view the object properly
             # joint_positions = ik_controller.solve_ik(
             #     target_pos,
             #     max_iters=10,     
@@ -69,18 +70,27 @@ def run_exp(config: Dict[str, Any]):
             # velocity_controller = EEVelocityController(robot, ik_controller)
             # local_planner = DDLocalPlanner(robot, velocity_controller)
             panda_planner = PandaVelocityLocalPlanner(robot)
-            joint_positions = robot.get_joint_positions()
+            # panda_planner.set_goals(sim.goal)
 
+            # goal_position = np.array([0.65, 0.3, 1.64])
+            # goal_position = np.array([0.65, 0.0, 1.2])
+            # joint_positions = ik_controller.solve_ik(
+            #      goal_position,
+            #     #  np.array([0, 0, 0, 1]),
+            #      max_iters=10,     
+            #      tolerance=1e-2)
             
+            # joint_velocities = panda_planner.step(0)
+            
+            # robot.position_control(joint_positions)
+            joint_positions = robot.get_joint_positions()
             for i in range(10000):
                 sim.step()
                 print(f"the joint velocities are {robot.get_joint_velocites()}")
-                # robot.position_control(joint_positions)
                 time = i*sim.timestep
                 # local_planner.step(time)
                 joint_velocities = panda_planner.step(time)
                 joint_positions += joint_velocities*(sim.timestep)
-                # joint_positions[6] -= 0.1*i
                 robot.position_control(joint_positions)
 
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
@@ -119,18 +129,6 @@ def run_exp(config: Dict[str, Any]):
                 posi = position_est.determine_position(segmented_depth)
                 print(f"the position of the object is {posi}")
 
-
-                # camera_projection_matrix = np.array(sim.projection_matrix).reshape(4, 4)
-                # camera_projection_matrix = np.delete(camera_projection_matrix, 2, axis=0)
-
-                # position_est = PositionEstimation(config["camera"], camera_projection_matrix)
-                # camera_intrinsics = position_est.compute_camera_intrinsics()
-                # print(f"the camera intrinsics are {camera_intrinsics}")
-
-                # print(f"the projection matrix is {camera_projection_matrix}")
-
-                # cv2.imwrite("mask.jpg", segmentation_mask*100)
-                # cv2.imwrite("depth.jpg", segmented_depth*10)
 
                 print((f"[{i}] Goal Obj Pos-Diff: "
                        f"{sim.check_goal_obj_pos(goal_guess)}"))

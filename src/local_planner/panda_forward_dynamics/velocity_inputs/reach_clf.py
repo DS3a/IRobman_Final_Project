@@ -22,6 +22,6 @@ class ReachCLF:
         dest = sp.Matrix(self.destination)
 
         diff = x_sys - dest
-        return 0.5*(diff.transpose() @ diff)
+        return 0.5*(diff.transpose().dot(diff))
 
                             

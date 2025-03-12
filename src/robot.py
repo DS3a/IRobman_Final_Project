@@ -99,3 +99,22 @@ class Robot:
             controlMode=p.POSITION_CONTROL,
             targetPositions=target_positions,
         )
+
+    def velocity_control(self, target_velocities):
+        p.setJointMotorControlArray(
+            self.id,
+            jointIndices=self.arm_idx,
+            controlMode=p.VELOCITY_CONTROL,
+            targetPositions=target_velocities,
+        )
+
+
+    def control_gripper(self, open_gripper=True):
+        target_pos = [p.getJointInfo(self.id, idx)[9] if open_gripper else p.getJointInfo(self.id, idx)[8]
+                    for idx in self.gripper_idx]
+        p.setJointMotorControlArray(
+            self.id,
+            jointIndices=self.gripper_idx,
+            controlMode=p.POSITION_CONTROL,
+            targetPositions=target_pos,
+        )
