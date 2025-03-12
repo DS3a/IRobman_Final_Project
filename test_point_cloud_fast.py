@@ -13,7 +13,8 @@ from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import utils
-
+from scipy.spatial.transform import Rotation
+ 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
 print(f"PyBullet NumPy support enabled: {numpy_support}")
@@ -494,10 +495,13 @@ def run_grasping(config, sim, collected_point_clouds):
     vis_meshes.extend(highest_containment_grasp)
 
     utils.visualize_3d_objs(vis_meshes)
-    rot, translation = best_grasp
+    rot_mat, translation = best_grasp
     goal_pos = merged_pcd.get_center() + translation
     print(f"the goal position is {goal_pos}")
-    rot_quat = p.get
+    rot = Rotation.from_matrix(rot_mat)
+    rot_quat = rot.as_quat()
+    joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
+    sim.robot.position_control(joint_goals)
     print(f"opening the gripper")
     sim.robot.control_gripper()
 
