@@ -58,7 +58,7 @@ class GraspGeneration:
             # ])
             # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
 
-            offset = np.random.uniform(0, np.pi/12)
+            offset = np.random.uniform(0, np.pi/6)
 
             Rx = np.array([
                 [1,  0,  0],
@@ -79,8 +79,14 @@ class GraspGeneration:
 
             # Ry = np.eye(3)
 
+            Rx_again = np.array([
+                [1, 0, 0],
+                [0, np.cos(offset), -np.sin(offset)],
+                [0, np.sin(offset), np.cos(offset)]
+            ])
+
             # Final rotation matrix: First apply Rx, then Rz
-            R = Rx @ Ry  # Equivalent to R = np.dot(Rz, Rx)
+            R = Rx @ Ry @ Rx_again # Equivalent to R = np.dot(Rz, Rx)
 
 
 
@@ -210,35 +216,13 @@ class GraspGeneration:
             print(f"ray {i+1}/{num_rays}")
             # we are casting a ray from the right finger to the left
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-            # photon_position = right_new_center.copy()
-            # num_collisions = 0
-            # first_collision_point = None
-            # # while np.linalg.norm(right_new_center - photon_position) < hand_width:
-            #     # check if the photon collides with the pointcloud
-            #     [_, idx, distance] = object_tree.search_knn_vector_3d(photon_position, 1)
-            #     if distance[0] < tolerance:
-            #         num_collisions += 1
-            #         print("collision detected")
-            #         if num_collisions == 1:
-            #             first_collision_point = photon_position.copy()
-            #             print(f"the first collision point is {first_collision_point}")
-            #         elif num_collisions == 2:
-            #             interception_depth = np.linalg.norm(photon_position - first_collision_point)
-            #             max_interception_depth = max(max_interception_depth, interception_depth)
-            #             print(f"the second collision is at {photon_position}")
-            #             print(f"the interception depth is {interception_depth}")
-            #             num_collisions = 0
-            #             break
-            #         rays_hit += 1
-            #     photon_position += ray_direction*photon_translation
-
             rays.append([np.concatenate([right_new_center, ray_direction])])
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
         print(ans['t_hit'])
         rays_hit = 0
-        max_interception_depth = 0
+        max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
         rays = []
         for idx, hit_point in enumerate(ans['t_hit']):
             print(f"the hitpoint is {hit_point[0] < hand_width}")
@@ -258,15 +242,15 @@ class GraspGeneration:
             for idx, hitpoint in enumerate(ans['t_hit']):
                 left_idx = 0
                 if hitpoint[0] < hand_width: 
-                    interception_depth = hand_width - ans_left['t_hit'][0] - hitpoint[0]
+                    interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
                     max_interception_depth = max(max_interception_depth, interception_depth)
                     left_idx += 1
 
         print(f"the max interception depth is {max_interception_depth}")
         containment_ratio = rays_hit / num_rays
         intersections.append(contained)
-        intersections.append(max_interception_depth)
+        # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
 
 
-        return any(intersections), containment_ratio
+        return any(intersections), containment_ratio, max_interception_depth.item()

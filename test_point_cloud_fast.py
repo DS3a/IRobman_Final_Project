@@ -398,7 +398,7 @@ def run(config):
         sim.robot.position_control(target_joints)
         for _ in range(5):  # Give some time for physics to settle
             sim.step()
-            time.sleep(1/240.)
+            # time.sleep(1/240.)
         
         # Capture point cloud at this viewpoint
         rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
@@ -462,7 +462,7 @@ def run_grasping(config, sim, collected_point_clouds):
     # sim.robot.position_control(target_joints)
 
     grasp_generator = GraspGeneration()
-    sampled_grasps = grasp_generator.sample_grasps(centre_point, 100, offset=0.2)
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 200, offset=0.2)
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
@@ -480,11 +480,12 @@ def run_grasping(config, sim, collected_point_clouds):
     highest_containment = 0
     highest_containment_grasp = None
     best_grasp = None
+    best_interception_depth = 0
     ##################################################
     vis_meshes = [obj_triangle_mesh]
     for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
         if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
-            intersections, containement_ratio = grasp_generator.check_grasp_containment(grasp_mesh[0].get_center(), 
+            intersections, containement_ratio, interception_depth = grasp_generator.check_grasp_containment(grasp_mesh[0].get_center(), 
                                                                                         grasp_mesh[1].get_center(),
                                                                                         finger_length=0.05,
                                                                                         object_pcd=merged_pcd,
@@ -496,6 +497,7 @@ def run_grasping(config, sim, collected_point_clouds):
                 highest_containment = containement_ratio
                 highest_containment_grasp = grasp_mesh
                 best_grasp = pose
+                best_interception_depth = interception_depth
 
 
     coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
@@ -513,9 +515,24 @@ def run_grasping(config, sim, collected_point_clouds):
 
     rot_quat = rot.as_quat()
     joint_goals = ik_solver.solve(goal_pos, rot_quat, sim.robot.get_joint_positions())
+
+    for idx in sim.robot.gripper_idx:
+        p.resetJointState(sim.robot.id, idx, 0.05)  # Try setting a small opening angle
+
+
+
     sim.robot.position_control(joint_goals)
+
+    # print(f"the best interception depth is {best_interception_depth[0]}")
+    for idx in sim.robot.gripper_idx:
+        p.resetJointState(sim.robot.id, idx, best_interception_depth)  # Try setting a small opening angle
+
     print(f"opening the gripper")
-    sim.robot.control_gripper()
+    print(f"try to lift the object")
+
+    # joint_goals = ik_solver.solve(goal_pos+np.array([0, 0, 0.2]), rot_quat, sim.robot.get_joint_positions())
+    # sim.robot.position_control(joint_goals)
+    # sim.robot.control_gripper()
 
     # Now, I need to execute the grasp
     

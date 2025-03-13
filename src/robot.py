@@ -109,12 +109,3 @@ class Robot:
         )
 
 
-    def control_gripper(self, open_gripper=True):
-        target_pos = [p.getJointInfo(self.id, idx)[9] if open_gripper else p.getJointInfo(self.id, idx)[8]
-                    for idx in self.gripper_idx]
-        p.setJointMotorControlArray(
-            self.id,
-            jointIndices=self.gripper_idx,
-            controlMode=p.POSITION_CONTROL,
-            targetPositions=target_pos,
-        )
