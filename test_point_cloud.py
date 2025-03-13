@@ -12,7 +12,8 @@ from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
 from src.grasping.grasp_generation import GraspGeneration
-
+from src.grasping import utils
+from scipy.spatial.transform import Rotation
 
 # Check if PyBullet has NumPy support enabled
 numpy_support = p.isNumpyEnabled()
@@ -227,11 +228,13 @@ def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, targ
     generate linear Cartesian trajectory in Cartesian space
     """
     # set start position
-    for i, joint_idx in enumerate(ik_solver.joint_indices):
+    for i, joint_idx in enumerate(sim.robot.arm_idx):
         p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     # get current end-effector pose
-    start_pos, _ = ik_solver.get_current_ee_pose()
+    ee_state = p.getLinkState(sim.robot.id, sim.robot.ee_idx)
+    print(f"ee_state_0={np.array(ee_state[0])}, ee_state_1={np.array(ee_state[1])}")
+    start_pos = np.array(ee_state[0])
     
     # generate linear trajectory
     trajectory = []
@@ -242,13 +245,13 @@ def generate_cartesian_trajectory(sim, ik_solver, start_joints, target_pos, targ
         pos = start_pos + t * (target_pos - start_pos)
         
         # solve IK for current Cartesian position
-        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.01)
+        current_joints = ik_solver.solve(pos, target_orn, start_joints, max_iters=50, tolerance=0.001)
         
         # add solution to trajectory
         trajectory.append(current_joints)
         
         # reset to start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, start_joints[i])
     
     return trajectory
@@ -410,6 +413,106 @@ def iterative_closest_point(collected_data):
     
     return merged_pcd
 
+def run_grasping(config, sim, collected_point_clouds):
+    """
+    Execute grasp generation and visualization
+    
+    Parameters:
+    config: Configuration dictionary
+    sim: Simulation object
+    collected_point_clouds: List of collected point cloud data
+    """
+    print("Merging point clouds and calculating centroid...")
+    merged_pcd = iterative_closest_point(collected_point_clouds)
+    centre_point = np.asarray(merged_pcd.points)
+    centre_point = centre_point.mean(axis=0)
+    print(f"Point cloud centroid coordinates: {centre_point}")
+    
+    # Initialize IK solver
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    
+    # Get current joint positions
+    current_joints = sim.robot.get_joint_positions()
+    
+    # Initialize grasp generator
+    print("Generating grasp candidates...")
+    grasp_generator = GraspGeneration()
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    
+    # Create meshes for each grasp
+    all_grasp_meshes = []
+    for grasp in sampled_grasps:
+        R, grasp_center = grasp
+        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+
+    # Create triangle mesh from point cloud for visualization
+    print("Creating triangle mesh from point cloud...")
+    obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=merged_pcd, 
+                                                                                      alpha=0.08)
+ 
+    # Evaluate grasp quality
+    print("Evaluating grasp quality...")
+    vis_meshes = [obj_triangle_mesh]
+    highest_quality = 0
+    highest_containment_grasp = None
+    best_grasp = None
+    
+    for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
+        if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
+            valid_grasp, grasp_quality = grasp_generator.check_grasp_containment(
+                grasp_mesh[0].get_center(), 
+                grasp_mesh[1].get_center(),
+                finger_length=0.05,
+                object_pcd=merged_pcd,
+                num_rays=50,
+                rotation_matrix=pose[0],
+            )
+            # Convert tensor to float if needed
+            if hasattr(grasp_quality, 'item'):
+                grasp_quality = float(grasp_quality.item())
+            
+            # Use new quality metric to select grasp
+            if valid_grasp and grasp_quality > highest_quality:
+                highest_quality = grasp_quality
+                highest_containment_grasp = grasp_mesh
+                best_grasp = pose
+                print(f"Found better grasp, quality: {grasp_quality:.3f}")
+
+    # Visualize best grasp
+    if highest_containment_grasp is not None:
+        print(f"Found valid grasp, highest quality: {highest_quality:.3f}")
+        vis_meshes.extend(highest_containment_grasp)
+    else:
+        print("No valid grasp found!")
+
+    # Display visualization results
+    print("Displaying grasp visualization results...")
+    utils.visualize_3d_objs(vis_meshes)
+    
+    # If valid grasp found, move robot to grasp position
+    if best_grasp is not None:
+        rot_mat, translation = best_grasp
+        goal_pos = merged_pcd.get_center() + translation
+        print(f"Target position: {goal_pos}")
+        rot = Rotation.from_matrix(rot_mat)
+        rot_quat = rot.as_quat()
+        
+        # Solve IK to get joint targets
+        joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
+        
+        # Move robot to grasp position
+        print("Moving robot to grasp position...")
+        sim.robot.position_control(joint_goals)
+        
+        # Open gripper
+        print("Opening gripper...")
+        sim.robot.control_gripper()
+        
+        # Wait for physics to stabilize
+        for _ in range(100):
+            sim.step()
+            time.sleep(1/240.)
+
 def run(config):
     """
     main function to run point cloud collection from multiple viewpoints
@@ -425,7 +528,12 @@ def run(config):
     obj_names = [os.path.basename(file) for file in files]
     # target_obj_name = random.choice(obj_names)
     # print(f"Resetting simulation with random object: {target_obj_name}")
-    target_obj_name = "YcbMustardBottle"
+    # All objects: 
+    # Low objects: YcbBanana, YcbFoamBrick, YcbHammer, YcbMediumClamp, YcbPear, YcbScissors, YcbStrawberry, YcbTennisBall, 
+    # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
+    # High objects: YcbCrackerBox, YcbMustardBottle, 
+    # Unstable objects: YcbChipsCan, YcbPowerDrill
+    target_obj_name = "YcbMustardBottle" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -436,26 +544,182 @@ def run(config):
     # Initialize point cloud collection list
     collected_data = []
     
+    # Get and save initial position at the start of simulation
+    initial_joints = sim.robot.get_joint_positions()
+    print("Saving initial joint positions of simulation environment")
+    
+    # Initialize object height variable, default value
+    object_height_with_offset = 1.6
+    # Initialize object centroid coordinates, default values
+    object_centroid_x = -0.02
+    object_centroid_y = -0.45
+
+    pause_time = 2.0  # Pause for 2 seconds
+    print(f"\nPausing for {pause_time} seconds...")
+    for _ in range(int(pause_time * 240)):  # Assuming simulation frequency of 240Hz
+        sim.step()
+        time.sleep(1/240.)
+        
+    # ===== Move to specified position and get point cloud =====
+    print("\nMoving to high observation point...")
+    # Define high observation position and orientation
+    z_observe_pos = np.array([-0.02, -0.45, 1.9])
+    z_observe_orn = p.getQuaternionFromEuler([0, np.radians(-180), 0])  # Looking down
+    
+    # Solve IK
+    ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
+    high_point_target_joints = ik_solver.solve(z_observe_pos, z_observe_orn, initial_joints, max_iters=50, tolerance=0.001)
+    
+    # Generate trajectory
+    print("Generating trajectory for high observation point...")
+    high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
+    
+    if not high_point_trajectory:
+        print("Unable to generate trajectory to high observation point, skipping high point cloud collection")
+    else:
+        print(f"Generated trajectory with {len(high_point_trajectory)} points")
+        
+        # Reset to initial position
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
+            p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
+        
+        # Move robot along trajectory to high point
+        for joint_target in high_point_trajectory:
+            # sim.get_ee_renders()
+            sim.robot.position_control(joint_target)
+            for _ in range(5):
+                sim.step()
+                time.sleep(1/240.)
+        
+        # Get point cloud at high observation position
+        rgb_ee, depth_ee, seg_ee = sim.get_ee_renders()
+        camera_pos, camera_R = get_ee_camera_params(sim.robot, config)
+        print(f"High observation point camera position:", camera_pos)
+        print(f"High observation point end effector position:", sim.robot.get_ee_pose()[0])
+        
+        # Build point cloud
+        target_mask_id = sim.object.id
+        print(f"Target object ID: {target_mask_id}")
+        
+        try:
+            if target_mask_id not in np.unique(seg_ee):
+                print("Warning: Target object ID not found in segmentation mask")
+                print("Available IDs in segmentation mask:", np.unique(seg_ee))
+                
+                non_zero_ids = np.unique(seg_ee)[1:] if len(np.unique(seg_ee)) > 1 else []
+                if len(non_zero_ids) > 0:
+                    target_mask_id = non_zero_ids[0]
+                    print(f"Using first non-zero ID instead: {target_mask_id}")
+                else:
+                    raise ValueError("No valid objects found in segmentation mask")
+            
+            high_point_pcd = build_object_point_cloud_ee(rgb_ee, depth_ee, seg_ee, target_mask_id, config, camera_pos, camera_R)
+            
+            # Process point cloud
+            high_point_pcd = high_point_pcd.voxel_down_sample(voxel_size=0.005)
+            high_point_pcd, _ = high_point_pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            
+            # Store point cloud data
+            high_point_cloud_data = {
+                'point_cloud': high_point_pcd,
+                'camera_position': camera_pos,
+                'camera_rotation': camera_R,
+                'ee_position': sim.robot.get_ee_pose()[0],
+                'timestamp': time.time(),
+                'target_object': target_obj_name,
+                'viewpoint_idx': 'high_point'
+            }
+            
+            # Get coordinates of all points in the point cloud
+            points_array = np.asarray(high_point_pcd.points)
+            if len(points_array) > 0:
+                # Find point with maximum z value
+                max_z_idx = np.argmax(points_array[:, 2])
+                max_z_point = points_array[max_z_idx]
+                print(f"Maximum z-axis point in high point cloud: {max_z_point}")
+                high_point_cloud_data['max_z_point'] = max_z_point
+                
+                # Extract maximum z value, add offset
+                object_max_z = max_z_point[2]
+                object_height_with_offset = max(object_max_z + 0.2, 1.65)
+                print(f"Object height with offset: {object_height_with_offset}")
+                
+                # Calculate centroid of x and y coordinates of all points in the cloud
+                object_centroid_x = np.mean(points_array[:, 0])
+                object_centroid_y = np.mean(points_array[:, 1])
+                print(f"Object point cloud centroid coordinates (x, y): ({object_centroid_x:.4f}, {object_centroid_y:.4f})")
+                high_point_cloud_data['centroid'] = np.array([object_centroid_x, object_centroid_y, 0])
+            else:
+                print("No points in high point cloud")
+            
+            # Visualize high point cloud
+            print("\nVisualizing high point cloud...")
+            visualize_point_clouds([high_point_cloud_data], show_merged=False)
+            
+            # Add high point cloud to collected data
+            collected_data.append(high_point_cloud_data)
+            print(f"Point cloud collected from high observation position has {len(high_point_pcd.points)} points")
+            
+        except ValueError as e:
+            print(f"Error building point cloud for high observation position:", e)
+        
+    #     # Return from high point to initial position
+    #     print("\nReturning from high point to initial position...")
+    #     # Generate trajectory from high point back to initial position
+    #     return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
+        
+    #     if not return_trajectory:
+    #         print("Unable to generate trajectory back to initial position")
+    #     else:
+    #         print(f"Generated return trajectory with {len(return_trajectory)} points")
+            
+    #         # Move robot along trajectory back to initial position
+    #         for joint_target in return_trajectory:
+    #             sim.robot.position_control(joint_target)
+    #             for _ in range(1):
+    #                 sim.step()
+    #                 time.sleep(1/240.)
+            
+    #         print("Returned to initial position")
+    
+    # # Ensure robot is back at initial position
+    # for i, joint_idx in enumerate(sim.robot.arm_idx):
+    #     p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
+    
+    # ===== Original 4 point cloud collection positions =====
     # Define target positions and orientations
+    # Use object centroid as base point for x and y, add offsets
     target_positions = [
-        np.array([0, -0.3, 1.6]),
-        np.array([-0.2, -0.6, 1.6]),
-        np.array([0.2, -0.6, 1.6]),
+        
+        np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
+        np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]),
+        np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]),
+        np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset])
+        
     ]
     target_orientations = [
+        
+        p.getQuaternionFromEuler([0, np.radians(-150), 0]),
         p.getQuaternionFromEuler([np.radians(150), 0, 0]),
-        p.getQuaternionFromEuler([np.radians(-150), np.radians(-30), 0]), 
-        p.getQuaternionFromEuler([np.radians(-150), np.radians(30), 0])
+        p.getQuaternionFromEuler([0, np.radians(150), 0]),
+        p.getQuaternionFromEuler([np.radians(-150), 0, 0])
+        
     ]
+    
+    print(f"\nUsing collection positions based on object centroid:")
+    print(f"Object centroid coordinates (x, y): ({object_centroid_x:.4f}, {object_centroid_y:.4f})")
+    print(f"Object height with offset: {object_height_with_offset:.4f}")
+    for i, pos in enumerate(target_positions):
+        print(f"Collection point {i+1}: ({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f})")
     
     # For each viewpoint
     for viewpoint_idx, (target_pos, target_orn) in enumerate(zip(target_positions, target_orientations)):
         print(f"\nMoving to viewpoint {viewpoint_idx + 1}")
-        
+        sim.get_ee_renders()
         # Get initial static camera view to setup obstacle tracking
-        rgb_static, depth_static, seg_static = sim.get_static_renders()
-        detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-        tracked_positions = obstacle_tracker.update(detections)
+        # rgb_static, depth_static, seg_static = sim.get_static_renders()
+        # detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+        # tracked_positions = obstacle_tracker.update(detections)
         
         # Get current joint positions
         current_joints = sim.robot.get_joint_positions()
@@ -464,16 +728,17 @@ def run(config):
         
         # Solve IK for target end-effector pose
         ik_solver = DifferentialIKSolver(sim.robot.id, sim.robot.ee_idx, damping=0.05)
-        target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
+        target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.001)
         
         # Reset to saved start position
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
         
         # Initialize RRT* planner
         rrt_planner = RRTStarPlanner(
             robot_id=sim.robot.id,
-            joint_indices=ik_solver.joint_indices,
+            # joint_indices=ik_solver.joint_indices,
+            joint_indices=sim.robot.arm_idx,
             lower_limits=sim.robot.lower_limits,
             upper_limits=sim.robot.upper_limits,
             ee_link_index=sim.robot.ee_idx,
@@ -506,15 +771,16 @@ def run(config):
         print(f"Generated trajectory with {len(trajectory)} points")
         
         # Reset to saved start position again before executing trajectory
-        for i, joint_idx in enumerate(ik_solver.joint_indices):
+        for i, joint_idx in enumerate(sim.robot.arm_idx):
             p.resetJointState(sim.robot.id, joint_idx, saved_joints[i])
         
         # Move robot along trajectory to target position
         for joint_target in trajectory:
+            # sim.get_ee_renders()
             # Update obstacle tracking
-            rgb_static, depth_static, seg_static = sim.get_static_renders()
-            detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
-            tracked_positions = obstacle_tracker.update(detections)
+            # rgb_static, depth_static, seg_static = sim.get_static_renders()
+            # detections = obstacle_tracker.detect_obstacles(rgb_static, depth_static, seg_static)
+            # tracked_positions = obstacle_tracker.update(detections)
             
             # Visualize tracked obstacles
             # bounding_box = obstacle_tracker.visualize_tracking_3d(tracked_positions)
@@ -524,7 +790,7 @@ def run(config):
             
             # Move robot
             sim.robot.position_control(joint_target)
-            for _ in range(1):
+            for _ in range(5):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -582,21 +848,24 @@ if __name__ == "__main__":
     collected_point_clouds, sim = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
     
+    # Check and print maximum z-axis point of high point cloud
+    for data in collected_point_clouds:
+        if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
+            print(f"\nMaximum z-axis point in high observation position point cloud: {data['max_z_point']}")
+    
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
         # First show individual point clouds
-        # print("\nVisualizing individual point clouds...")
-        # visualize_point_clouds(collected_point_clouds, show_merged=False)
+        print("\nVisualizing individual point clouds...")
+        visualize_point_clouds(collected_point_clouds, show_merged=False)
         
         # Then show merged point cloud
         print("\nVisualizing merged point cloud...")
         visualize_point_clouds(collected_point_clouds, show_merged=True)
-
-        # get the merged pointcloud
-        merged_pcd = iterative_closest_point(collected_point_clouds)
-
-        centre_point = np.asarray(merged_pcd.points).mean(axis=1)
-        print(f"the centre point is {centre_point}")
         
-        grasp_generator = GraspGeneration()
-
+        # Execute grasp generation
+        print("\nExecuting grasp generation...")
+        run_grasping(config, sim, collected_point_clouds)
+        
+        # Close simulation
+        sim.close()
