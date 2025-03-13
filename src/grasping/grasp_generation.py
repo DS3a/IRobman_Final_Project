@@ -46,18 +46,45 @@ class GraspGeneration:
             z = r * np.cos(phi)
             grasp_center = center_point + np.array([x, y, z])
 
-            axis = np.random.normal(size=3)
-            axis /= np.linalg.norm(axis)
-            angle = np.random.uniform(0, 2 * np.pi)
+            # axis = np.random.normal(size=3)
+            # axis = np.array([0, 0, -1])
+            # axis /= np.linalg.norm(axis)
+            # angle = np.random.uniform(0, 2 * np.pi)
 
-            K =  np.array([
-                [0, -axis[2], axis[1]],
-                [axis[2], 0, -axis[0]],
-                [-axis[1], axis[0], 0],
+            # K =  np.array([
+            #     [0, -axis[2], axis[1]],
+            #     [axis[2], 0, -axis[0]],
+            #     [-axis[1], axis[0], 0],
+            # ])
+            # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
+
+            offset = np.random.uniform(0, np.pi/12)
+
+            Rx = np.array([
+                [1,  0,  0],
+                [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
+                [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
             ])
-            R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
+            
+            # Generate a random angle for X rotation
+            theta = np.random.uniform(0, 2 * np.pi)  # Random angle in radians
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-            assert R.shape == (3, 3)
+            # Rotation matrix about X-axis
+            Ry = np.array([
+                [cos_t,  0,       sin_t      ],
+                [0,  1,  0 ],
+                [-sin_t,  0,   cos_t]
+            ])
+
+            # Ry = np.eye(3)
+
+            # Final rotation matrix: First apply Rx, then Rz
+            R = Rx @ Ry  # Equivalent to R = np.dot(Rz, Rx)
+
+
+
+            # assert R.shape == (3, 3)
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
 

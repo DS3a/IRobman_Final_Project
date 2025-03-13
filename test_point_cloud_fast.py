@@ -455,18 +455,23 @@ def run_grasping(config, sim, collected_point_clouds):
     # target_pos = centre_point + np.array([0, 0, 0.2])
 
     current_joints = sim.robot.get_joint_positions()
-    target_orn = p.getQuaternionFromEuler([np.radians(90), 0, 0])
+    # target_orn = p.getQuaternionFromEuler([np.radians(90), 0, 0])
     # target_joints = ik_solver.solve(target_pos, target_orn, current_joints, max_iters=50, tolerance=0.01)
         
     # Directly set robot to target joints
     # sim.robot.position_control(target_joints)
 
     grasp_generator = GraspGeneration()
-    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 100, offset=0.2)
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
-        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R))
+        all_grasp_meshes.append(utils.create_grasp_mesh(center_point=grasp_center, rotation_matrix=R, 
+                                                        
+                                                            width=0.005, height=0.05, depth=0.0018, 
+                          gripper_distance=0.105/2, gripper_height=0.05, scale=1.0
+ 
+                                                        ))
 
 
     obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=merged_pcd, 
@@ -487,20 +492,27 @@ def run_grasping(config, sim, collected_point_clouds):
                                                                                         rotation_matrix=pose[0],
                                                                                         )
             # find the highest containment ratio
-            if containement_ratio > highest_containment:
+            if highest_containment < containement_ratio:
                 highest_containment = containement_ratio
                 highest_containment_grasp = grasp_mesh
                 best_grasp = pose
 
+
+    coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            size=0.1, origin=np.array([0, 0, 0]))
     vis_meshes.extend(highest_containment_grasp)
+    vis_meshes.append(coordinate_frame)
 
     utils.visualize_3d_objs(vis_meshes)
-    rot_mat, translation = best_grasp
-    goal_pos = merged_pcd.get_center() + translation
+    rot_mat, grasp_center = best_grasp
+    goal_pos = grasp_center + np.array([0, 0, 0.0])
     print(f"the goal position is {goal_pos}")
+    rot_mat = rot_mat @ Rotation.from_euler('x', 90, degrees=True).as_matrix()
+    rot_mat = rot_mat @ Rotation.from_euler('z', 90, degrees=True).as_matrix()
     rot = Rotation.from_matrix(rot_mat)
+
     rot_quat = rot.as_quat()
-    joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
+    joint_goals = ik_solver.solve(goal_pos, rot_quat, sim.robot.get_joint_positions())
     sim.robot.position_control(joint_goals)
     print(f"opening the gripper")
     sim.robot.control_gripper()
@@ -531,7 +543,7 @@ if __name__ == "__main__":
 
         print("\nRunning grasping")        
         run_grasping(config, sim, collected_point_clouds)
-        print("\nVisualizing merged point cloud...")
+        # print("\nVisualizing merged point cloud...")
         visualize_point_clouds(collected_point_clouds, show_merged=True)
 
 
