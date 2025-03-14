@@ -12,7 +12,6 @@ class GraspGeneration:
         center_point: np.ndarray,
         num_grasps: int,
         offset: float = 0.1,
-        height_threshold: Optional[float] = None,
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
@@ -21,60 +20,82 @@ class GraspGeneration:
             center: Center around which to sample grasps.
             num_grasps: Number of random grasp poses to generate
             offset: Maximum distance offset from the center (meters)
-            height_threshold: Height of the table surface. If provided, only samples
-                          positions above this height to avoid collisions with the table.
 
         Returns:
             list: List of rotations and Translations
         """
 
         grasp_poses_list = []
-        attempts = 0
-        max_attempts = num_grasps * 3  # Allow more attempts to find valid grasps
-        
-        while len(grasp_poses_list) < num_grasps and attempts < max_attempts:
-            attempts += 1
+        for idx in range(num_grasps):
             # Sample a grasp center and rotation of the grasp
             # Sample a random vector in R3 for axis angle representation
             # Return the rotation as rotation matrix + translation
             # Translation implies translation from a center point
             theta = np.random.uniform(0, 2*np.pi)
 
-            # Only sample from the upper hemisphere (phi from 0 to pi/2)
-            # phi = np.arccos(1 - 2 * np.random.uniform(0, 0.5))  # Only upper half
-            phi = np.arccos(np.random.uniform(0, 1))  # This gives points in upper hemisphere
-            
+            # phi = np.random.uniform(0, np.pi)
+            # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
+            # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
+
+            # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
+            phi = np.arccos(np.random.uniform(0, 1))
+            # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
             r = np.random.uniform(0, offset)
 
             x = r * np.sin(phi) * np.cos(theta)
             y = r * np.sin(phi) * np.sin(theta)
-            z = r * np.cos(phi)  # z will be positive due to phi range
+            z = r * np.cos(phi)
             grasp_center = center_point + np.array([x, y, z])
-            
-            # If table height is provided, check if the grasp is above the table
-            if height_threshold is not None and grasp_center[2] < height_threshold:
-                continue  # Skip this grasp if it's below the table
-            
-            # Generate random rotation
-            axis = np.random.normal(size=3)
-            axis /= np.linalg.norm(axis)
-            angle = np.random.uniform(0, 2 * np.pi)
 
-            K = np.array([
-                [0, -axis[2], axis[1]],
-                [axis[2], 0, -axis[0]],
-                [-axis[1], axis[0], 0],
+            # axis = np.random.normal(size=3)
+            # axis = np.array([0, 0, -1])
+            # axis /= np.linalg.norm(axis)
+            # angle = np.random.uniform(0, 2 * np.pi)
+
+            # K =  np.array([
+            #     [0, -axis[2], axis[1]],
+            #     [axis[2], 0, -axis[0]],
+            #     [-axis[1], axis[0], 0],
+            # ])
+            # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
+
+            offset = np.random.uniform(0, np.pi/12)
+            # offset = 0
+            
+            Rx = np.array([
+                [1,  0,  0],
+                [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
+                [ 0, np.sin(offset+np.pi/2),  np.cos(offset+np.pi/2)]
             ])
-            R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
+            
+            # Generate a random angle for X rotation
+            theta = np.random.uniform(0, 2 * np.pi)  # Random angle in radians
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
 
-            assert R.shape == (3, 3)
+            # Rotation matrix about X-axis
+            Ry = np.array([
+                [cos_t, 0, sin_t],
+                [ 0, 1, 0],
+                [-sin_t, 0, cos_t]
+            ])
+
+            # Ry = np.eye(3)
+
+            Rx_again = np.array([
+                [1, 0, 0],
+                [0, np.cos(offset), -np.sin(offset)],
+                [0, np.sin(offset), np.cos(offset)]
+            ])
+
+            # Final rotation matrix: First apply Rx, then Rz
+            R = Rx @ Ry @ Rx_again # Equivalent to R = np.dot(Rz, Rx)
+
+
+
+            # assert R.shape == (3, 3)
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
 
-        # If we couldn't generate enough grasps, warn the user
-        if len(grasp_poses_list) < num_grasps:
-            print(f"Warning: Could only generate {len(grasp_poses_list)} valid grasps out of {num_grasps} requested")
-            
         return grasp_poses_list
     
 
@@ -197,35 +218,13 @@ class GraspGeneration:
             # print(f"ray {i+1}/{num_rays}")
             # we are casting a ray from the right finger to the left
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-            # photon_position = right_new_center.copy()
-            # num_collisions = 0
-            # first_collision_point = None
-            # # while np.linalg.norm(right_new_center - photon_position) < hand_width:
-            #     # check if the photon collides with the pointcloud
-            #     [_, idx, distance] = object_tree.search_knn_vector_3d(photon_position, 1)
-            #     if distance[0] < tolerance:
-            #         num_collisions += 1
-            #         print("collision detected")
-            #         if num_collisions == 1:
-            #             first_collision_point = photon_position.copy()
-            #             print(f"the first collision point is {first_collision_point}")
-            #         elif num_collisions == 2:
-            #             interception_depth = np.linalg.norm(photon_position - first_collision_point)
-            #             max_interception_depth = max(max_interception_depth, interception_depth)
-            #             print(f"the second collision is at {photon_position}")
-            #             print(f"the interception depth is {interception_depth}")
-            #             num_collisions = 0
-            #             break
-            #         rays_hit += 1
-            #     photon_position += ray_direction*photon_translation
-
             rays.append([np.concatenate([right_new_center, ray_direction])])
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
         # print(ans['t_hit'])
         rays_hit = 0
-        max_interception_depth = 0
+        max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
         rays = []
         for idx, hit_point in enumerate(ans['t_hit']):
             # print(f"the hitpoint is {hit_point[0] < hand_width}")
@@ -245,15 +244,15 @@ class GraspGeneration:
             for idx, hitpoint in enumerate(ans['t_hit']):
                 left_idx = 0
                 if hitpoint[0] < hand_width: 
-                    interception_depth = hand_width - ans_left['t_hit'][0] - hitpoint[0]
+                    interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
                     max_interception_depth = max(max_interception_depth, interception_depth)
                     left_idx += 1
 
-        # print(f"the max interception depth is {max_interception_depth}")
+        print(f"the max interception depth is {max_interception_depth}")
         containment_ratio = rays_hit / num_rays
         intersections.append(contained)
-        intersections.append(max_interception_depth)
+        # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
 
 
-        return any(intersections), containment_ratio
+        return any(intersections), containment_ratio, max_interception_depth.item()

@@ -434,9 +434,9 @@ def run_grasping(config, sim, collected_point_clouds):
     # Get current joint positions
     current_joints = sim.robot.get_joint_positions()
     
-    table_height = sim.robot.pos[2]
-    height_threshold = table_height + 0.1
-    print(f"Table height from robot base: {height_threshold}")
+    # table_height = sim.robot.pos[2]
+    # height_threshold = table_height + 0.05
+    # print(f"Table height from robot base: {height_threshold}")
     
     # Initialize grasp generator
     print("Generating grasp candidates...")
@@ -444,8 +444,7 @@ def run_grasping(config, sim, collected_point_clouds):
     sampled_grasps = grasp_generator.sample_grasps(
         centre_point, 
         100, 
-        offset=0.1,
-        height_threshold=height_threshold
+        offset=0.1
     )
     
     # Create meshes for each grasp
@@ -468,7 +467,7 @@ def run_grasping(config, sim, collected_point_clouds):
     
     for (pose, grasp_mesh) in zip(sampled_grasps, all_grasp_meshes):
         if not grasp_generator.check_grasp_collision(grasp_mesh, merged_pcd, num_colisions=1):
-            valid_grasp, grasp_quality = grasp_generator.check_grasp_containment(
+            valid_grasp, grasp_quality, interception_depth = grasp_generator.check_grasp_containment(
                 grasp_mesh[0].get_center(), 
                 grasp_mesh[1].get_center(),
                 finger_length=0.05,
@@ -518,7 +517,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbGelatinBox" 
+    target_obj_name = "YcbTennisBall" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -627,7 +626,7 @@ def run(config):
                 
                 # Extract maximum z value, add offset
                 object_max_z = max_z_point[2]
-                object_height_with_offset = max(object_max_z + 0.2, 1.65)
+                object_height_with_offset = max(object_max_z + 0.2, 1.3)
                 print(f"Object height with offset: {object_height_with_offset}")
                 
                 # Calculate centroid of x and y coordinates of all points in the cloud
