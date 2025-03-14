@@ -652,18 +652,16 @@ def run(config):
     target_positions = [
         
         np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
-        np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset]),
+        np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset]),
         np.array([object_centroid_x - 0.15, object_centroid_y, object_height_with_offset]),
-        np.array([object_centroid_x, object_centroid_y - 0.15, object_height_with_offset])
-        
+        np.array([object_centroid_x, object_centroid_y + 0.15, object_height_with_offset])    
     ]
     target_orientations = [
         
         p.getQuaternionFromEuler([0, np.radians(-150), 0]),
-        p.getQuaternionFromEuler([np.radians(150), 0, 0]),
+        p.getQuaternionFromEuler([np.radians(-150), 0, 0]),
         p.getQuaternionFromEuler([0, np.radians(150), 0]),
-        p.getQuaternionFromEuler([np.radians(-150), 0, 0])
-        
+        p.getQuaternionFromEuler([np.radians(150), 0, 0])
     ]
     
     print(f"\nUsing collection positions based on object centroid:")
