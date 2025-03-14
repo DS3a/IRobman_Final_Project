@@ -434,10 +434,19 @@ def run_grasping(config, sim, collected_point_clouds):
     # Get current joint positions
     current_joints = sim.robot.get_joint_positions()
     
+    table_height = sim.robot.pos[2]
+    height_threshold = table_height + 0.1
+    print(f"Table height from robot base: {height_threshold}")
+    
     # Initialize grasp generator
     print("Generating grasp candidates...")
     grasp_generator = GraspGeneration()
-    sampled_grasps = grasp_generator.sample_grasps(centre_point, 50, offset=0.1)
+    sampled_grasps = grasp_generator.sample_grasps(
+        centre_point, 
+        100, 
+        offset=0.1,
+        height_threshold=height_threshold
+    )
     
     # Create meshes for each grasp
     all_grasp_meshes = []
@@ -488,30 +497,6 @@ def run_grasping(config, sim, collected_point_clouds):
     # Display visualization results
     print("Displaying grasp visualization results...")
     utils.visualize_3d_objs(vis_meshes)
-    
-    # If valid grasp found, move robot to grasp position
-    if best_grasp is not None:
-        rot_mat, translation = best_grasp
-        goal_pos = merged_pcd.get_center() + translation
-        print(f"Target position: {goal_pos}")
-        rot = Rotation.from_matrix(rot_mat)
-        rot_quat = rot.as_quat()
-        
-        # Solve IK to get joint targets
-        joint_goals = ik_solver.solve(merged_pcd.get_center(), rot_quat, sim.robot.get_joint_positions())
-        
-        # Move robot to grasp position
-        print("Moving robot to grasp position...")
-        sim.robot.position_control(joint_goals)
-        
-        # Open gripper
-        print("Opening gripper...")
-        sim.robot.control_gripper()
-        
-        # Wait for physics to stabilize
-        for _ in range(100):
-            sim.step()
-            time.sleep(1/240.)
 
 def run(config):
     """
@@ -533,7 +518,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbMustardBottle" 
+    target_obj_name = "YcbGelatinBox" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -572,7 +557,8 @@ def run(config):
     
     # Generate trajectory
     print("Generating trajectory for high observation point...")
-    high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
+    # high_point_trajectory = generate_cartesian_trajectory(sim, ik_solver, initial_joints, z_observe_pos, z_observe_orn, steps=100)
+    high_point_trajectory = generate_trajectory(initial_joints, high_point_target_joints, steps=100)
     
     if not high_point_trajectory:
         print("Unable to generate trajectory to high observation point, skipping high point cloud collection")
@@ -587,7 +573,7 @@ def run(config):
         for joint_target in high_point_trajectory:
             # sim.get_ee_renders()
             sim.robot.position_control(joint_target)
-            for _ in range(5):
+            for _ in range(1):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -654,7 +640,7 @@ def run(config):
             
             # Visualize high point cloud
             print("\nVisualizing high point cloud...")
-            visualize_point_clouds([high_point_cloud_data], show_merged=False)
+            # visualize_point_clouds([high_point_cloud_data], show_merged=False)
             
             # Add high point cloud to collected data
             collected_data.append(high_point_cloud_data)
@@ -663,32 +649,6 @@ def run(config):
         except ValueError as e:
             print(f"Error building point cloud for high observation position:", e)
         
-    #     # Return from high point to initial position
-    #     print("\nReturning from high point to initial position...")
-    #     # Generate trajectory from high point back to initial position
-    #     return_trajectory = generate_trajectory(sim.robot.get_joint_positions(), initial_joints, steps=100)
-        
-    #     if not return_trajectory:
-    #         print("Unable to generate trajectory back to initial position")
-    #     else:
-    #         print(f"Generated return trajectory with {len(return_trajectory)} points")
-            
-    #         # Move robot along trajectory back to initial position
-    #         for joint_target in return_trajectory:
-    #             sim.robot.position_control(joint_target)
-    #             for _ in range(1):
-    #                 sim.step()
-    #                 time.sleep(1/240.)
-            
-    #         print("Returned to initial position")
-    
-    # # Ensure robot is back at initial position
-    # for i, joint_idx in enumerate(sim.robot.arm_idx):
-    #     p.resetJointState(sim.robot.id, joint_idx, initial_joints[i])
-    
-    # ===== Original 4 point cloud collection positions =====
-    # Define target positions and orientations
-    # Use object centroid as base point for x and y, add offsets
     target_positions = [
         
         np.array([object_centroid_x + 0.15, object_centroid_y, object_height_with_offset]),
@@ -790,7 +750,7 @@ def run(config):
             
             # Move robot
             sim.robot.position_control(joint_target)
-            for _ in range(5):
+            for _ in range(1):
                 sim.step()
                 time.sleep(1/240.)
         
@@ -848,20 +808,15 @@ if __name__ == "__main__":
     collected_point_clouds, sim = run(config)
     print(f"Successfully collected {len(collected_point_clouds)} point clouds.")
     
-    # Check and print maximum z-axis point of high point cloud
-    for data in collected_point_clouds:
-        if data.get('viewpoint_idx') == 'high_point' and 'max_z_point' in data:
-            print(f"\nMaximum z-axis point in high observation position point cloud: {data['max_z_point']}")
-    
     # Visualize the collected point clouds if any were collected
     if collected_point_clouds:
-        # First show individual point clouds
-        print("\nVisualizing individual point clouds...")
-        visualize_point_clouds(collected_point_clouds, show_merged=False)
+        # # First show individual point clouds
+        # print("\nVisualizing individual point clouds...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=False)
         
-        # Then show merged point cloud
-        print("\nVisualizing merged point cloud...")
-        visualize_point_clouds(collected_point_clouds, show_merged=True)
+        # # Then show merged point cloud
+        # print("\nVisualizing merged point cloud...")
+        # visualize_point_clouds(collected_point_clouds, show_merged=True)
         
         # Execute grasp generation
         print("\nExecuting grasp generation...")

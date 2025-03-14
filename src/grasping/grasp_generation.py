@@ -12,6 +12,7 @@ class GraspGeneration:
         center_point: np.ndarray,
         num_grasps: int,
         offset: float = 0.1,
+        height_threshold: Optional[float] = None,
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
@@ -20,37 +21,46 @@ class GraspGeneration:
             center: Center around which to sample grasps.
             num_grasps: Number of random grasp poses to generate
             offset: Maximum distance offset from the center (meters)
+            height_threshold: Height of the table surface. If provided, only samples
+                          positions above this height to avoid collisions with the table.
 
         Returns:
             list: List of rotations and Translations
         """
 
         grasp_poses_list = []
-        for idx in range(num_grasps):
+        attempts = 0
+        max_attempts = num_grasps * 3  # Allow more attempts to find valid grasps
+        
+        while len(grasp_poses_list) < num_grasps and attempts < max_attempts:
+            attempts += 1
             # Sample a grasp center and rotation of the grasp
             # Sample a random vector in R3 for axis angle representation
             # Return the rotation as rotation matrix + translation
             # Translation implies translation from a center point
             theta = np.random.uniform(0, 2*np.pi)
 
-            phi = np.random.uniform(0, np.pi)
-            # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
-            # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
-
-            phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
-            # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
+            # Only sample from the upper hemisphere (phi from 0 to pi/2)
+            # phi = np.arccos(1 - 2 * np.random.uniform(0, 0.5))  # Only upper half
+            phi = np.arccos(np.random.uniform(0, 1))  # This gives points in upper hemisphere
+            
             r = np.random.uniform(0, offset)
 
             x = r * np.sin(phi) * np.cos(theta)
             y = r * np.sin(phi) * np.sin(theta)
-            z = r * np.cos(phi)
+            z = r * np.cos(phi)  # z will be positive due to phi range
             grasp_center = center_point + np.array([x, y, z])
-
+            
+            # If table height is provided, check if the grasp is above the table
+            if height_threshold is not None and grasp_center[2] < height_threshold:
+                continue  # Skip this grasp if it's below the table
+            
+            # Generate random rotation
             axis = np.random.normal(size=3)
             axis /= np.linalg.norm(axis)
             angle = np.random.uniform(0, 2 * np.pi)
 
-            K =  np.array([
+            K = np.array([
                 [0, -axis[2], axis[1]],
                 [axis[2], 0, -axis[0]],
                 [-axis[1], axis[0], 0],
@@ -61,6 +71,10 @@ class GraspGeneration:
             assert grasp_center.shape == (3,)
             grasp_poses_list.append((R, grasp_center))
 
+        # If we couldn't generate enough grasps, warn the user
+        if len(grasp_poses_list) < num_grasps:
+            print(f"Warning: Could only generate {len(grasp_poses_list)} valid grasps out of {num_grasps} requested")
+            
         return grasp_poses_list
     
 
@@ -180,7 +194,7 @@ class GraspGeneration:
         # move the right centre to the start of the finger instead of the geometric centre
         right_center = right_center - rotation_matrix.dot(finger_vec/2)
         for i in range(num_rays):
-            print(f"ray {i+1}/{num_rays}")
+            # print(f"ray {i+1}/{num_rays}")
             # we are casting a ray from the right finger to the left
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
             # photon_position = right_new_center.copy()
@@ -209,12 +223,12 @@ class GraspGeneration:
 
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
-        print(ans['t_hit'])
+        # print(ans['t_hit'])
         rays_hit = 0
         max_interception_depth = 0
         rays = []
         for idx, hit_point in enumerate(ans['t_hit']):
-            print(f"the hitpoint is {hit_point[0] < hand_width}")
+            # print(f"the hitpoint is {hit_point[0] < hand_width}")
             if hit_point[0] < hand_width:
                 # I need to cast a ray from the left finger to check the depth and find the intersection depth
                 contained = True
@@ -235,7 +249,7 @@ class GraspGeneration:
                     max_interception_depth = max(max_interception_depth, interception_depth)
                     left_idx += 1
 
-        print(f"the max interception depth is {max_interception_depth}")
+        # print(f"the max interception depth is {max_interception_depth}")
         containment_ratio = rays_hit / num_rays
         intersections.append(contained)
         intersections.append(max_interception_depth)
