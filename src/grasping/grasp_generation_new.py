@@ -184,13 +184,22 @@ class GraspGeneration:
             - containment_ratio: Ratio of rays that hit the object
             - intersection_depth: Depth of deepest intersection point
         """
-
         left_center = np.asarray(left_finger_center)
         right_center = np.asarray(right_finger_center)
 
         intersections = []
         # Check for intersections between corresponding points
         object_tree = o3d.geometry.KDTreeFlann(object_pcd)
+
+        # Calculate object height and bounding box
+        points = np.asarray(object_pcd.points)
+        min_point = np.min(points, axis=0)
+        max_point = np.max(points, axis=0)
+        object_height = max_point[2] - min_point[2]
+        object_center = (min_point + max_point) / 2
+        
+        print(f"Object height: {object_height:.4f}m")
+        print(f"Object center point: {object_center}")
 
         obj_triangle_mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=object_pcd, 
                                                                                           alpha=0.016)
@@ -210,29 +219,75 @@ class GraspGeneration:
         hand_width = np.linalg.norm(left_center-right_center)
         finger_vec = np.array([0, finger_length, 0])
         ray_direction = (left_center - right_center)/hand_width
-        # tolerance = 0.00001
-        rays_hit = 0
-        contained = False
-        rays = []
-        # max_interception_depth = 0
-        # photon_translation = 1/50000  # I chose this as we are sampling the object into 50000 points
+        
+        # For low height objects, adjust ray starting height
+        if object_height < 0.05:  # If object height is less than 5cm
+            print("Detected low height object, adjusting ray height...")
+            
+            # Calculate the difference in z-axis between finger center and object center
+            z_diff = (right_center[2] + left_center[2]) / 2 - object_center[2]
+            print(f"left_center: {left_center}, right_center: {right_center}, object_center: {object_center}")
+            # If finger center is higher than object center, lower finger center to object center height
+            if z_diff > 0.01:  # If difference is greater than 1cm
+                height_adjustment = z_diff - 0.01  # Keep 1cm margin
+                right_center[2] -= height_adjustment
+                left_center[2] -= height_adjustment
+                print(f"Ray height adjusted: {height_adjustment:.4f}m")
         
         # For storing ray start and end points for visualization
         ray_start_points = []
         ray_end_points = []
         
-        # move the right centre to the start of the finger instead of the geometric centre
-        right_center = right_center - rotation_matrix.dot(finger_vec/2)
-        for i in range(num_rays):
-            # print(f"ray {i+1}/{num_rays}")
-            # we are casting a ray from the right finger to the left
-            right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
-            rays.append([np.concatenate([right_new_center, ray_direction])])
+        # ===== Calculate gripper width direction =====
+        print("Calculating gripper width direction...")
+        # Calculate gripper width direction vector (perpendicular to both ray_direction and finger_vec)
+        # First calculate finger_vec direction in world coordinate system
+        world_finger_vec = rotation_matrix.dot(finger_vec)
+        # Calculate width direction vector (cross product gives vector perpendicular to both vectors)
+        width_direction = np.cross(ray_direction, world_finger_vec)
+        # Normalize
+        width_direction = width_direction / np.linalg.norm(width_direction)
+        
+        # Define width direction parameters
+        width_planes = 1  # Number of planes on each side in width direction
+        width_offset = 0.02  # Offset between planes (meters)
+        
+        # ===== Generate multiple parallel ray planes =====
+        print("Generating multiple parallel ray planes...")
+        # Center plane (original plane)
+        rays = []
+        contained = False
+        rays_hit = 0
+        
+        # Parallel planes on both sides in width direction
+        for plane in range(1, width_planes + 1):
+            # Calculate current plane offset
+            current_offset = width_offset * plane
             
-            # Store ray start and end points for visualization
-            ray_start_points.append(right_new_center)
-            ray_end_points.append(right_new_center + ray_direction * hand_width)
-
+            # Right side plane
+            for i in range(num_rays):
+                # Calculate sampling point in length direction, with offset in width direction
+                right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) + width_direction * current_offset
+                # Add ray from right offset point to left offset point
+                rays.append([np.concatenate([right_point, ray_direction])])
+                
+                # Store ray start and end points for visualization - using actual finger width
+                ray_start_points.append(right_point)
+                ray_end_points.append(right_point + ray_direction * hand_width)
+            
+            # Left side plane
+            for i in range(num_rays):
+                # Calculate sampling point in length direction, with offset in width direction
+                right_point = right_center + rotation_matrix.dot((i/num_rays)*finger_vec) - width_direction * current_offset
+                # Add ray from right offset point to left offset point
+                rays.append([np.concatenate([right_point, ray_direction])])
+                
+                # Store ray start and end points for visualization - using actual finger width
+                ray_start_points.append(right_point)
+                ray_end_points.append(right_point + ray_direction * hand_width)
+        
+        print(f"Total rays generated: {len(rays)}")
+        
         # Visualize rays in PyBullet
         debug_lines = []
         if visualize_rays:
@@ -243,46 +298,56 @@ class GraspGeneration:
                     end.tolist(), 
                     lineColorRGB=[1, 0, 0],  # Red
                     lineWidth=1,
-                    lifeTime=2  # Disappear after 2 seconds
+                    lifeTime=5  # Disappear after 5 seconds
                 )
                 debug_lines.append(line_id)
-
+        
+        # Perform ray casting
         rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
         ans = scene.cast_rays(rays_t)
-        # print(ans['t_hit'])
-
+        
+        # Process ray casting results
         rays_hit = 0
         max_interception_depth = o3d.core.Tensor([0.0], dtype=o3d.core.Dtype.Float32)
-        rays = []
+        rays_from_left = []
+        
+        # Process all ray results
+        print("Processing ray casting results...")
         for idx, hit_point in enumerate(ans['t_hit']):
-            # print(f"the hitpoint is {hit_point[0] < hand_width}")
+            # Check if ray hits object using actual finger width
             if hit_point[0] < hand_width:
-                # I need to cast a ray from the left finger to check the depth and find the intersection depth
                 contained = True
                 rays_hit += 1
-                left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
-                rays.append([np.concatenate([left_new_center, -ray_direction])])
+                
+                # Only calculate depth for rays in center plane (original plane)
+                if idx < num_rays:
+                    left_new_center = left_center + rotation_matrix.dot((idx/num_rays)*finger_vec)
+                    rays_from_left.append([np.concatenate([left_new_center, -ray_direction])])
         
         containment_ratio = 0.0
         if contained:
-            rays_t = o3d.core.Tensor(rays, dtype=o3d.core.Dtype.Float32)
-            ans_left = scene.cast_rays(rays_t)
-
-
-            for idx, hitpoint in enumerate(ans['t_hit']):
-                left_idx = 0
-                if hitpoint[0] < hand_width: 
-                    interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
-                    max_interception_depth = max(max_interception_depth, interception_depth)
-                    left_idx += 1
+            # Process rays from left side (only for center plane)
+            if rays_from_left:
+                rays_t = o3d.core.Tensor(rays_from_left, dtype=o3d.core.Dtype.Float32)
+                ans_left = scene.cast_rays(rays_t)
+                
+                for idx, hitpoint in enumerate(ans['t_hit']):
+                    if idx < num_rays:  # Only process rays in center plane
+                        left_idx = 0
+                        # Calculate interception depth using actual finger width
+                        if hitpoint[0] < hand_width: 
+                            interception_depth = hand_width - ans_left['t_hit'][0].item() - hitpoint[0].item()
+                            max_interception_depth = max(max_interception_depth, interception_depth)
+                            left_idx += 1
 
         print(f"the max interception depth is {max_interception_depth}")
-        containment_ratio = rays_hit / num_rays
-        print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{num_rays})")
+        # Calculate total ray hit ratio
+        total_rays = len(rays)
+        containment_ratio = rays_hit / total_rays
+        print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{total_rays})")
         
         intersections.append(contained)
         # intersections.append(max_interception_depth[0])
         # return contained, containment_ratio
-
 
         return any(intersections), containment_ratio, max_interception_depth.item()
