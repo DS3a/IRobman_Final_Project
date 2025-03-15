@@ -88,10 +88,13 @@ def run_exp(config: Dict[str, Any]):
                 sim.step()
                 print(f"the joint velocities are {robot.get_joint_velocites()}")
                 time = i*sim.timestep
+                for idx in sim.robot.gripper_idx:
+                    p.resetJointState(sim.robot.id, idx, 0.05)  # Try setting a small opening angle
+
                 # local_planner.step(time)
-                joint_velocities = panda_planner.step(time)
-                joint_positions += joint_velocities*(sim.timestep)
-                robot.position_control(joint_positions)
+                # joint_velocities = panda_planner.step(time)
+                # joint_positions += joint_velocities*(sim.timestep)
+                # robot.position_control(joint_positions)
 
                 ee_pos, ee_ori = sim.robot.get_ee_pose()
                 print(f"[{i}] End Effector Position: {ee_pos}")

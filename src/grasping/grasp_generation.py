@@ -60,9 +60,8 @@ class GraspGeneration:
             # ])
             # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
 
-            # offset = np.random.uniform(0, np.pi/12)
-            offset = 0
-            
+            offset = np.random.uniform(0, np.pi/6)
+
             Rx = np.array([
                 [1,  0,  0],
                 [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
