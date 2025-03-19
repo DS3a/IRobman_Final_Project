@@ -11,7 +11,7 @@ from src.simulation import Simulation
 from src.ik_solver import DifferentialIKSolver
 from src.obstacle_tracker import ObstacleTracker
 from src.rrt_star import RRTStarPlanner
-from src.grasping.grasp_generation import GraspGeneration
+from src.grasping.grasp_generation_2 import GraspGeneration
 # from src.grasping.grasp_generation import GraspGeneration
 from src.grasping import utils
 from scipy.spatial.transform import Rotation
@@ -549,7 +549,8 @@ def run_grasping(config, sim, collected_point_clouds):
         adjusted_centre_point = centre_point
         
     # Generate grasp candidates using adjusted centroid
-    sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 100, radius=0.1, object_pcd=merged_pcd)
+    sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 400, radius=0.1, object_pcd=merged_pcd)
+    # sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 100, radius=0.1)
     
     # Create meshes for each grasp
     all_grasp_meshes = []
