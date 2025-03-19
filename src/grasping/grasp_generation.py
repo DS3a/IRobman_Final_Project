@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Tuple, Sequence, Optional, Any
 import open3d as o3d
-import pybullet as p  # Import pybullet for visualization
+import pybullet as p  # 导入pybullet用于可视化
 
 
 class GraspGeneration:
@@ -13,6 +13,7 @@ class GraspGeneration:
         center_point: np.ndarray,
         num_grasps: int,
         radius: float = 0.1,
+        sim = None
     ) -> Sequence[Tuple[np.ndarray, np.ndarray]]:
         """
         Generates multiple random grasp poses around a given point cloud.
@@ -27,6 +28,8 @@ class GraspGeneration:
         """
 
         grasp_poses_list = []
+        table_height = sim.robot.pos[2] + 0.01 # 0.01m higher than robot base from visualisation
+        
         for idx in range(num_grasps):
             # Sample a grasp center and rotation of the grasp
             # Sample a random vector in R3 for axis angle representation
@@ -38,15 +41,17 @@ class GraspGeneration:
             # this creates a lot of points around the pole. The points are not uniformly distributed around the sphere.
             # There is some transformation that can be applied to the random variable to remedy this issue, TODO look into that
 
-            # phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
-            phi = np.arccos(np.random.uniform(0, 1))
+            phi = np.arccos(1 - 2 * np.random.uniform(0, 1))
+            # phi = np.arccos(np.random.uniform(0, 1))
             # source https://math.stackexchange.com/questions/1585975/how-to-generate-random-points-on-a-sphere
-            r = np.random.uniform(0, radius)
+            r = radius * (np.random.uniform(0, 1))**(1/3)
 
             x = r * np.sin(phi) * np.cos(theta)
             y = r * np.sin(phi) * np.sin(theta)
             z = r * np.cos(phi)
             grasp_center = center_point + np.array([x, y, z])
+            grasp_center[2] = max(grasp_center[2], table_height)
+            print(f"grasp_center: {grasp_center}")
 
             # axis = np.random.normal(size=3)
             # axis = np.array([0, 0, -1])
@@ -60,8 +65,9 @@ class GraspGeneration:
             # ])
             # R = np.eye(3) + np.sin(angle)*K + (1 - np.cos(angle))*K.dot(K)
 
-            offset = np.random.uniform(0, np.pi/6)
-
+            # offset = np.random.uniform(0, np.pi/12)
+            offset = 0
+            
             Rx = np.array([
                 [1,  0,  0],
                 [ 0, np.cos(offset+np.pi/2),  -np.sin(offset+np.pi/2)],
@@ -163,7 +169,7 @@ class GraspGeneration:
         object_pcd: o3d.geometry.PointCloud,
         num_rays: int,
         rotation_matrix: np.ndarray, # rotation-mat
-        visualize_rays: bool = False  # Whether to visualize rays in PyBullet
+        visualize_rays: bool = False  # 是否在PyBullet中可视化射线
     ) -> Tuple[bool, float, float]:
         """
         Checks if any line between the gripper fingers intersects with the object mesh.
@@ -216,7 +222,7 @@ class GraspGeneration:
         # max_interception_depth = 0
         # photon_translation = 1/50000  # I chose this as we are sampling the object into 50000 points
         
-        # For storing ray start and end points for visualization
+        # 用于存储射线的起点和终点，用于可视化
         ray_start_points = []
         ray_end_points = []
         
@@ -228,21 +234,21 @@ class GraspGeneration:
             right_new_center = right_center + rotation_matrix.dot((i/num_rays)*finger_vec)
             rays.append([np.concatenate([right_new_center, ray_direction])])
             
-            # Store ray start and end points for visualization
+            # 存储射线起点和终点用于可视化
             ray_start_points.append(right_new_center)
             ray_end_points.append(right_new_center + ray_direction * hand_width)
 
-        # Visualize rays in PyBullet
+        # 在PyBullet中可视化射线
         debug_lines = []
         if visualize_rays:
-            print("Visualizing rays in PyBullet...")
+            print("在PyBullet中可视化射线...")
             for start, end in zip(ray_start_points, ray_end_points):
                 line_id = p.addUserDebugLine(
                     start.tolist(), 
                     end.tolist(), 
-                    lineColorRGB=[1, 0, 0],  # Red
+                    lineColorRGB=[1, 0, 0],  # 红色
                     lineWidth=1,
-                    lifeTime=2  # Disappear after 2 seconds
+                    lifeTime=2  # 2秒后自动消失
                 )
                 debug_lines.append(line_id)
 
@@ -277,7 +283,7 @@ class GraspGeneration:
 
         print(f"the max interception depth is {max_interception_depth}")
         containment_ratio = rays_hit / num_rays
-        print(f"Ray hit ratio: {containment_ratio:.4f} ({rays_hit}/{num_rays})")
+        print(f"射线命中率: {containment_ratio:.4f} ({rays_hit}/{num_rays})")
         
         intersections.append(contained)
         # intersections.append(max_interception_depth[0])
