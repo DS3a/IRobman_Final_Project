@@ -185,9 +185,13 @@ class ObstacleTracker:
                     
                 # calc contour center
                 M = cv2.moments(contour)
-                cx = int(M['m10']/M['m00'])
-                cy = int(M['m01']/M['m00'])
-                
+                try:
+                    cx = int(M['m10']/M['m00'])
+                    cy = int(M['m01']/M['m00'])
+                except:
+                    cx = 0
+                    cy = 0
+
                 # check depth
                 depth_buffer = depth[cy, cx]
                 metric_depth = self.convert_depth_to_meters(depth_buffer)
