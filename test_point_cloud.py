@@ -549,7 +549,7 @@ def run_grasping(config, sim, collected_point_clouds):
         adjusted_centre_point = centre_point
         
     # Generate grasp candidates using adjusted centroid
-    sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 400, radius=0.1, object_pcd=merged_pcd)
+    sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 400, radius=0.2, object_pcd=merged_pcd)
     # sampled_grasps = grasp_generator.sample_grasps(adjusted_centre_point, 100, radius=0.1)
     
     # Create meshes for each grasp
@@ -640,6 +640,9 @@ def run_grasping(config, sim, collected_point_clouds):
         
         # Apply the combined transformation directly
         R_world = R @ combined_transform
+        # rot_mat = R @ Rotation.from_euler('x', 90, degrees=True).as_matrix()
+        # rot_mat = rot_mat @ Rotation.from_euler('z', 90, degrees=True).as_matrix()
+        # R_world = rot_mat
         
         rot_world = Rotation.from_matrix(R_world)
         quat_world = rot_world.as_quat()
@@ -1077,7 +1080,7 @@ def run_pcd(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan, YcbPowerDrill
-    target_obj_name = "YcbMustardBottle" 
+    target_obj_name = "YcbCrackerBox" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
