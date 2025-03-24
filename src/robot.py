@@ -58,8 +58,11 @@ class Robot:
             p.changeDynamics(self.id, j, linearDamping=0, angularDamping=0)
 
     def set_default_position(self):
-        for idx, pos in zip(self.arm_idx, self.default_arm):
+        for idx, pos in zip(self.arm_idx, self.default_arm[:-2]):
             p.resetJointState(self.id, idx, pos)
+
+        for grp_idx, pos in zip(self.gripper_idx, self.default_arm[-2:]):
+            p.resetJointState(self.id, grp_idx, pos)
 
     def get_joint_limits(self):
         lower = []
@@ -99,13 +102,3 @@ class Robot:
             controlMode=p.POSITION_CONTROL,
             targetPositions=target_positions,
         )
-
-    def velocity_control(self, target_velocities):
-        p.setJointMotorControlArray(
-            self.id,
-            jointIndices=self.arm_idx,
-            controlMode=p.VELOCITY_CONTROL,
-            targetPositions=target_velocities,
-        )
-
-
