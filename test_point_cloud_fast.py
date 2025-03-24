@@ -335,7 +335,7 @@ def run(config):
     # Medium objects: YcbGelatinBox, YcbMasterChefCan, YcbPottedMeatCan, YcbTomatoSoupCan
     # High objects: YcbCrackerBox, YcbMustardBottle, 
     # Unstable objects: YcbChipsCan， YcbPowerDrill
-    target_obj_name = "YcbMustardBottle" 
+    target_obj_name = "YcbGelatinBox" 
     
     # reset simulation with target object
     sim.reset(target_obj_name)
@@ -462,7 +462,7 @@ def run_grasping(config, sim, collected_point_clouds):
     # sim.robot.position_control(target_joints)
 
     grasp_generator = GraspGeneration()
-    sampled_grasps = grasp_generator.sample_grasps(centre_point, 200, offset=0.2)
+    sampled_grasps = grasp_generator.sample_grasps(centre_point, 200, radius=0.2, object_pcd=merged_pcd)
     all_grasp_meshes = []
     for grasp in sampled_grasps:
         R, grasp_center = grasp
